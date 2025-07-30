@@ -1,0 +1,112 @@
+
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>प्रवास कार्यक्रम – Theme A (ENHANCED)</title>
+<style>
+/* Core styles similar to FINAL, plus filters, dropdown, etc. */
+body { margin:0; font-family:"Noto Sans Devanagari","Hind",sans-serif; }
+.wrap { max-width:1200px; margin:0 auto; padding:20px; }
+.topbar, .filters { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; margin-bottom:10px; }
+.btn { border:1px solid #1F3B73; background:#f5f8ff; color:#1F3B73; padding:6px 12px; border-radius:6px; cursor:pointer; }
+input, select { padding:6px 8px; border:1px solid #ccc; border-radius:6px; }
+.page { background:#fff; border:1px solid #ddd; border-radius:12px; padding:20px; box-shadow:0 4px 12px rgba(0,0,0,0.05); }
+.header { display:grid; grid-template-columns:80px 1fr 180px; gap:12px; align-items:center; border-bottom:3px solid #E77019; padding-bottom:8px; }
+.logo { width:80px; height:80px; background:#ffe7d6; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:#9A3E00; border:2px solid #E77019; }
+.title h1 { margin:0; font-size:24px; color:#1F3B73; }
+.subtitle { font-size:14px; color:#555; }
+.content { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; margin-top:10px; }
+.card { background:#fff; border:1px solid #eee; border-radius:8px; padding:12px; }
+.section-title { border-left:4px solid #E77019; padding-left:6px; margin:0 0 6px; }
+.gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:8px; }
+.thumb { position:relative; border:1px solid #ddd; border-radius:6px; overflow:hidden; }
+.thumb img { width:100%; height:150px; object-fit:cover; }
+.open-original, .watch { position:absolute; bottom:4px; background:rgba(0,0,0,0.6); color:#fff; font-size:11px; padding:2px 5px; border-radius:4px; }
+.open-original { left:4px; }
+.watch { right:4px; cursor:pointer; }
+.lightbox { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:999; }
+.lightbox.open { display:flex; }
+.lightbox img { max-width:90vw; max-height:90vh; }
+.lightbox .nav-btn { position:absolute; top:50%; font-size:32px; color:#fff; cursor:pointer; padding:10px; }
+.lightbox .prev { left:10px; }
+.lightbox .next { right:10px; }
+.cover-page { text-align:center; padding:50px; }
+@media print {
+  .topbar, .filters { display:none; }
+  .page { page-break-after:always; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="topbar">
+<div>
+<button id="prev" class="btn">◀ पिछला</button>
+<button id="next" class="btn">अगला ▶</button>
+<select id="jump"></select>
+</div>
+<div>
+<input id="search" type="text" placeholder="खोजें (नाम/स्थान/अतिथि)"/>
+<button onclick="window.print()" class="btn">PDF</button>
+<span id="status"></span>
+</div>
+</div>
+<div class="filters">
+<label>मंडल: <select id="filterMandal"><option value="">सभी</option></select></label>
+<label>प्रकार: <select id="filterType"><option value="">सभी</option></select></label>
+<label>तारीख: <input type="date" id="dateFrom"> से <input type="date" id="dateTo"></label>
+<select id="sort"><option value="">क्रमबद्ध करें</option><option value="date">तारीख</option><option value="att">उपस्थिति</option></select>
+</div>
+<div id="page" class="page"></div>
+<div class="cover-page" id="cover" style="display:none;"></div>
+</div>
+<div class="lightbox" id="lightbox">
+<span class="nav-btn prev" id="lbPrev">❮</span>
+<img id="lbImg" src="">
+<span class="nav-btn next" id="lbNext">❯</span>
+</div>
+<script>
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
+const MAX_PHOTOS=4;
+let rows=[],idx=0,filtered=[];
+const H={date:"कार्यक्रम दिनांक",place:"कार्यक्रम स्थान",title:"कार्यक्रम का नाम",attendance:"कार्यक्रम में कुल उपस्तिथि",guests:"कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि",photos:"कार्यक्रम के फोटो",info:"कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में",mandal:"मंडल का नाम",type:"कार्यक्रम का प्रकार"};
+function parseCSV(txt){const r=[];let i=0,c="",q=false,row=[];while(i<txt.length){const ch=txt[i];if(q){if(ch=='"'){if(txt[i+1]=='"'){c+='"';i++;}else q=false;}else c+=ch;}else{if(ch=='"')q=true;else if(ch==','){row.push(c);c="";}else if(ch=='\n'){row.push(c);r.push(row);row=[];c="";}else if(ch!='\r')c+=ch;}i++;}if(c.length||row.length)row.push(c),r.push(row);const h=r.shift();return r.map(rr=>{const o={};h.forEach((hh,j)=>o[hh]=rr[j]||"");return o;});}
+function extractID(u){if(!u)return"";u=u.trim();let m=u.match(/[?&]id=([\w-]+)/);if(m)return m[1];m=u.match(/\/file\/d\/([\w-]+)/);if(m)return m[1];if(/^[\w-]{15,}$/.test(u))return u;return"";}
+function candidates(u){const id=extractID(u);if(!id)return[];return[`https://drive.google.com/uc?export=view&id=${id}`,`https://drive.google.com/thumbnail?id=${id}&sz=w1200`,`https://lh3.googleusercontent.com/d/${id}=w1200`];}
+function thumb(u,i){const d=document.createElement("div");d.className="thumb";const tries=candidates(u);const img=document.createElement("img");let k=0;img.src=tries[k]||u;img.onerror=()=>{if(++k<tries.length)img.src=tries[k];};const a=document.createElement("a");a.textContent="Open original";a.className="open-original";a.href=tries[0]||u;a.target="_blank";const w=document.createElement("div");w.textContent="देखें";w.className="watch";w.onclick=e=>showLB(tries[0]||u,i);d.append(img,a,w);return d;}
+function toPhotos(f){return f.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function render(r){
+let guests=(r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean).map(g=>`<li>${esc(g)}</li>`).join("");
+document.getElementById("page").innerHTML=`<div class='header'><div class='logo'>BJ</div><div class='title'><h1>माननीय जिला अध्यक्ष जी का प्रवास कार्यक्रम</h1><div class='subtitle'>${esc(r[H.title])} • ${esc(r[H.place])}</div></div><div>${idx+1} / ${filtered.length}</div></div>
+<div class='content'><div class='card'><h3 class='section-title'>कार्यक्रम विवरण</h3><dl>
+<dt>तारीख</dt><dd>${esc(r[H.date])}</dd>
+<dt>स्थान</dt><dd>${esc(r[H.place])}</dd>
+<dt>मंडल</dt><dd>${esc(r[H.mandal])}</dd>
+<dt>प्रकार</dt><dd>${esc(r[H.type])}</dd>
+<dt>उपस्थिति</dt><dd>${esc(r[H.attendance])}</dd>
+<dt>अतिथि</dt><dd><ul>${guests||'—'}</ul></dd></dl>
+<div>${esc(r[H.info])}</div></div>
+<div class='card'><h3 class='section-title'>फोटो गैलरी</h3><div class='gallery' id='gal'></div></div></div>`;
+const gal=document.getElementById("gal");toPhotos(r[H.photos]).forEach((u,i)=>gal.appendChild(thumb(u,i)));}
+function loadData(){fetch(CSV_URL).then(r=>r.text()).then(t=>{rows=parseCSV(t);applyFilters();populateFilters();});}
+function applyFilters(){const q=document.getElementById("search").value.toLowerCase();const mandal=document.getElementById("filterMandal").value;const type=document.getElementById("filterType").value;const d1=new Date(document.getElementById("dateFrom").value||0);const d2=new Date(document.getElementById("dateTo").value||8640000000000000);filtered=rows.filter(r=>{let ok=true;if(q)ok=Object.values(H).some(h=>r[h]&&r[h].toLowerCase().includes(q));if(ok&&mandal)ok=r[H.mandal]==mandal;if(ok&&type)ok=r[H.type]==type;if(ok){let dt=new Date(r[H.date]);ok=dt>=d1&&dt<=d2;}return ok;});if(document.getElementById("sort").value=="att")filtered.sort((a,b)=>(parseInt(b[H.attendance])||0)-(parseInt(a[H.attendance])||0));else if(document.getElementById("sort").value=="date")filtered.sort((a,b)=>new Date(a[H.date])-new Date(b[H.date]));idx=0;populateJump();render(filtered[idx]||{});}
+function populateFilters(){const m=new Set(rows.map(r=>r[H.mandal]));const t=new Set(rows.map(r=>r[H.type]));const fm=document.getElementById("filterMandal"),ft=document.getElementById("filterType");m.forEach(x=>{if(x)fm.append(new Option(x,x));});t.forEach(x=>{if(x)ft.append(new Option(x,x));});}
+function populateJump(){const j=document.getElementById("jump");j.innerHTML="";filtered.forEach((r,i)=>j.append(new Option(`${i+1}: ${r[H.title]}`,i)));}
+document.getElementById("prev").onclick=()=>{if(idx>0)idx--;render(filtered[idx]);};
+document.getElementById("next").onclick=()=>{if(idx<filtered.length-1)idx++;render(filtered[idx]);};
+document.getElementById("jump").onchange=e=>{idx=parseInt(e.target.value);render(filtered[idx]);};
+document.getElementById("search").oninput=applyFilters;
+document.getElementById("filterMandal").onchange=applyFilters;
+document.getElementById("filterType").onchange=applyFilters;
+document.getElementById("dateFrom").onchange=applyFilters;
+document.getElementById("dateTo").onchange=applyFilters;
+document.getElementById("sort").onchange=applyFilters;
+let lbIndex=0;function showLB(src,i){lbIndex=i;document.getElementById("lbImg").src=src;document.getElementById("lightbox").classList.add("open");};
+document.getElementById("lbPrev").onclick=e=>{lbIndex=(lbIndex-1+MAX_PHOTOS)%MAX_PHOTOS;};
+document.getElementById("lbNext").onclick=e=>{lbIndex=(lbIndex+1)%MAX_PHOTOS;};
+window.onload=loadData;
+</script>
+</body></html>
