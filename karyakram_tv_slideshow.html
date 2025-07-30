@@ -1,0 +1,101 @@
+
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>प्रवास कार्यक्रम – TV Mode</title>
+<style>
+body { margin:0; background:#0b1220; color:#fff; font-family:"Noto Sans Devanagari","Hind",system-ui,Arial,sans-serif; }
+.container { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+.slide { width:92vw; height:92vh; background:#0f1a33; border-radius:20px; box-shadow:0 10px 30px rgba(0,0,0,.4); padding:18px; display:grid; grid-template-columns:1.1fr 1fr; gap:18px; }
+.header { grid-column:1 / -1; display:flex; justify-content:space-between; align-items:center; border-bottom:4px solid #e77019; padding-bottom:8px; }
+.h1 { font-size:30px; font-weight:800; }
+.meta { opacity:.8; }
+.card { background:#0e1426; border:1px solid #223; border-radius:14px; padding:12px; }
+.section { font-size:18px; color:#a9c1ff; margin-bottom:6px; }
+dl { margin:0; display:grid; grid-template-columns:150px 1fr; row-gap:6px; }
+dt { color:#9ab; } dd { margin:0; color:#fff; }
+.gallery { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+.gallery img { width:100%; height:32vh; object-fit:cover; border-radius:10px; }
+.controls { position:fixed; top:10px; right:10px; display:flex; gap:8px; }
+.btn { background:#e77019; color:#fff; border:none; border-radius:8px; padding:8px 12px; cursor:pointer; font-weight:700; }
+.hint { position:fixed; bottom:10px; right:10px; color:#9ab; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="controls">
+  <button class="btn" id="start">Start TV</button>
+  <button class="btn" id="pause">Pause</button>
+  <button class="btn" id="prev">◀</button>
+  <button class="btn" id="next">▶</button>
+</div>
+<div class="container">
+  <div class="slide" id="slide"></div>
+</div>
+<div class="hint">Keys: F = Fullscreen, Space = Pause/Play, ←/→ = Prev/Next</div>
+
+<script>
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
+const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
+const MAX_PHOTOS = 4;
+let rows=[], idx=0, timer=null, playing=false, interval=12000;
+
+function parseCSV(text){const out=[];let i=0,c="",row=[],q=false;while(i<text.length){const ch=text[i];if(q){if(ch=='"'){if(text[i+1]=='"'){c+='"';i++;}else q=false;}else c+=ch;}else{if(ch=='"')q=true;else if(ch==','){row.push(c);c="";}else if(ch=='\n'){row.push(c);out.push(row);row=[];c="";}else if(ch!='\r')c+=ch;}i++;}if(c.length||row.length){row.push(c);out.push(row);}const h=out.shift();return out.map(r=>Object.fromEntries(h.map((x,j)=>[x,(r[j]||"").trim()])));}
+function loadCSV(u){return fetch(u,{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(parseCSV);}
+function extractID(url){if(!url)return"";url=url.trim();let m=url.match(/[?&]id=([\w-]+)/);if(m)return m[1];m=url.match(/\/file\/d\/([\w-]+)/);if(m)return m[1];if(/^[\w-]{15,}$/.test(url))return url;return"";}
+function candidates(url){const id=extractID(url);if(!id)return[];return[`https://drive.google.com/uc?export=view&id=${id}`,`https://drive.google.com/thumbnail?id=${id}&sz=w1200`,`https://lh3.googleusercontent.com/d/${id}=w1200`];}
+function toPhotos(f){return (f||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);}
+function esc(s){return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+function render(r){
+  const el=document.getElementById('slide');
+  const guests=(r["कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि"]||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const photos=toPhotos(r["कार्यक्रम के फोटो"]);
+  el.innerHTML=`
+    <div class="header"><div class="h1">माननीय जिला अध्यक्ष जी का प्रवास कार्यक्रम</div>
+    <div class="meta">${idx+1} / ${rows.length}</div></div>
+    <div class="card"><div class="section">कार्यक्रम विवरण</div>
+      <dl>
+        <dt>तारीख</dt><dd>${esc(r["कार्यक्रम दिनांक"]||"")}</dd>
+        <dt>स्थान</dt><dd>${esc(r["कार्यक्रम स्थान"]||"")}</dd>
+        <dt>मंडल</dt><dd>${esc(r["मंडल का नाम"]||"")}</dd>
+        <dt>प्रकार</dt><dd>${esc(r["कार्यक्रम का प्रकार"]||"")}</dd>
+        <dt>उपस्थिति</dt><dd>${esc(r["कार्यक्रम में कुल उपस्तिथि"]||"")}</dd>
+        <dt>अतिथि</dt><dd>${guests.join(", ")||"—"}</dd>
+      </dl>
+      <div style="margin-top:8px">${esc(r["कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में"]||"").replace(/\n/g,"<br>")}</div>
+    </div>
+    <div class="card"><div class="section">फोटो गैलरी</div>
+      <div class="gallery" id="gal"></div>
+    </div>
+  `;
+  const gal=document.getElementById('gal');
+  photos.forEach(u=>{const tries=candidates(u);const img=document.createElement('img');let k=0;img.src=tries[k]||u;img.onerror=()=>{if(++k<tries.length)img.src=tries[k];};gal.appendChild(img);});
+}
+
+function play(){if(playing)return; playing=true; tick(); timer=setInterval(next, interval);}
+function pause(){playing=false; if(timer){clearInterval(timer);timer=null;}}
+function next(){idx=(idx+1)%rows.length; render(rows[idx]);}
+function prev(){idx=(idx-1+rows.length)%rows.length; render(rows[idx]);}
+function tick(){render(rows[idx]);}
+
+document.getElementById('start').onclick=async()=>{
+  try{rows=await loadCSV(CSV_URL);}catch(e){rows=await loadCSV(CSV_URL_PROXY);}
+  if(rows.length===0){alert("CSV खाली है");return;}
+  if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
+  play();
+};
+document.getElementById('pause').onclick=()=>{ if(playing) pause(); else play(); };
+document.getElementById('next').onclick=next;
+document.getElementById('prev').onclick=prev;
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '){ e.preventDefault(); if(playing) pause(); else play(); }
+  if(e.key==='ArrowRight') next();
+  if(e.key==='ArrowLeft') prev();
+  if(e.key.toLowerCase()==='f'){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(()=>{}); }
+});
+</script>
+</body>
+</html>
