@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="theme-color" content="#0b1220">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>प्रवास कार्यक्रम – TV Mode v1.1</title>
+<title>प्रवास कार्यक्रम – TV Mode v1.2</title>
 <style>
 :root{ --bg:#0b1220; --panel:#0f1a33; --card:#0e1426; --brand:#e77019; --ink:#fff; --muted:#9ab; }
 *{ box-sizing:border-box; } html,body{ height:100%; }
@@ -22,9 +22,10 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
 .gallery { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
 .gallery img { width:100%; height:34vh; object-fit:cover; border-radius:10px; background:#000; }
 
-.controls { position:fixed; top:10px; right:10px; display:flex; gap:8px; transition:opacity .4s ease; z-index:5; }
+.controls { position:fixed; top:10px; right:10px; display:flex; gap:8px; transition:opacity .4s ease; z-index:5; align-items:center;}
 .btn { background:var(--brand); color:#fff; border:none; border-radius:8px; padding:8px 12px; cursor:pointer; font-weight:700; }
-.hint { position:fixed; bottom:10px; right:10px; color:var(--muted); font-size:12px; z-index:4; }
+.chk { color:#fff; font-size:13px; display:flex; gap:6px; align-items:center; margin-left:6px; }
+.hint { position:fixed; bottom:10px; right:10px; color:#9ab; font-size:12px; z-index:4; }
 .controls.hidden{ opacity:0; pointer-events:none; }
 
 /* Portrait overlay */
@@ -53,6 +54,7 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
   <button class="btn" id="prev">◀</button>
   <button class="btn" id="next">▶</button>
   <button class="btn" id="hide">Hide UI</button>
+  <label class="chk"><input type="checkbox" id="photosOnly" checked> फोटो वाले ही</label>
 </div>
 <div class="container"><div class="slide" id="slide"></div></div>
 <div class="hint">Keys: F = Fullscreen, Space = Pause/Play, ←/→ = Prev/Next (UI auto‑hides)</div>
@@ -70,7 +72,7 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
 </div>
 
 <script>
-/*** CSV सेटिंग ***/
+/*** CSV ***/
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
 const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
 
@@ -78,8 +80,10 @@ const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
 const MAX_PHOTOS = 4;
 let rows=[], idx=0, timer=null, playing=false, interval=12000;
 let autoHideTimer=null;
+let H = {}; // headers map
 
 /*** Helpers ***/
+function norm(s){ return (s||"").replace(/[\u00A0\u200B]/g," ").replace(/\s+/g," ").trim(); }
 function parseCSV(text){
   const out=[]; let i=0, cell="", row=[], q=false;
   while(i<text.length){
@@ -89,9 +93,34 @@ function parseCSV(text){
     i++;
   }
   if(cell.length||row.length){ row.push(cell); out.push(row); }
-  const h=out.shift(); return out.map(r=>Object.fromEntries(h.map((x,j)=>[x,(r[j]||"").trim()])));
+  const header = out.shift().map(h=>norm(h));
+  const data = out.map(r => { const o={}; header.forEach((h,j)=> o[h]=norm(r[j]||"")); return o; });
+
+  // Header auto-detect (best-effort matches)
+  const keys = header;
+  function find(cands){
+    for(const c of cands){
+      const k1 = keys.find(k => k === c);           if(k1) return k1;      // exact
+      const k2 = keys.find(k => k.includes(c));     if(k2) return k2;      // contains
+    }
+    return cands[0];
+  }
+  H = {
+    ts:       find(["Timestamp","timestamp"]),
+    date:     find(["कार्यक्रम दिनांक","दिनांक","तारीख","date"]),
+    place:    find(["कार्यक्रम स्थान","स्थान","place"]),
+    title:    find(["कार्यक्रम का नाम","कार्यक्रम नाम","कार्यक्रम"]),
+    attendance: find(["कार्यक्रम में कुल उपस्तिथि","उपस्थिति","attendance"]),
+    guests:   find(["कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि","कार्यक्रम में प्रमुख अतिथि","अतिथि","guests"]),
+    photos:   find(["कार्यक्रम के फोटो","फोटो","photos"]),
+    info:     find(["कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में","अन्य जानकारी","information"]),
+    mandal:   find(["मंडल का नाम","मंडल","mandal"]),
+    type:     find(["कार्यक्रम का प्रकार","प्रकार","type"])
+  };
+  return data;
 }
 function loadCSV(u){ return fetch(u,{cache:"no-store"}).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); }).then(parseCSV); }
+
 function extractID(url){
   if(!url) return ""; url=url.trim();
   let m=url.match(/[?&]id=([\w-]+)/); if(m) return m[1];
@@ -104,15 +133,14 @@ function candidates(u){ const id=extractID(u); if(!id) return []; return [
   "https://drive.google.com/thumbnail?id="+id+"&sz=w1200",
   "https://lh3.googleusercontent.com/d/"+id+"=w1200"
 ];}
-function toPhotos(f){ return (f||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS); }
+function toPhotos(f){ return (f||"").split(/[\n,]/).map(s=>norm(s)).filter(Boolean).slice(0,MAX_PHOTOS); }
 function esc(s){ return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 /*** Render ***/
 function render(r){
   const el=document.getElementById('slide');
-  const guests=(r["कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि"]||"").split(",").map(s=>s.trim()).filter(Boolean);
-  const photos=toPhotos(r["कार्यक्रम के फोटो"]);
-
+  const guests=(r[H.guests]||"").split(",").map(s=>norm(s)).filter(Boolean);
+  const photos=toPhotos(r[H.photos]);
   el.innerHTML=`
     <div class="header">
       <div class="h1">माननीय जिला अध्यक्ष जी का प्रवास कार्यक्रम</div>
@@ -121,28 +149,21 @@ function render(r){
     <div class="card">
       <div class="section">कार्यक्रम विवरण</div>
       <dl>
-        <dt>तारीख</dt><dd>${esc(r["कार्यक्रम दिनांक"]||"")}</dd>
-        <dt>स्थान</dt><dd>${esc(r["कार्यक्रम स्थान"]||"")}</dd>
-        <dt>मंडल</dt><dd>${esc(r["मंडल का नाम"]||"")}</dd>
-        <dt>प्रकार</dt><dd>${esc(r["कार्यक्रम का प्रकार"]||"")}</dd>
-        <dt>उपस्थिति</dt><dd>${esc(r["कार्यक्रम में कुल उपस्तिथि"]||"")}</dd>
+        <dt>तारीख</dt><dd>${esc(r[H.date]||"")}</dd>
+        <dt>स्थान</dt><dd>${esc(r[H.place]||"")}</dd>
+        <dt>मंडल</dt><dd>${esc(r[H.mandal]||"")}</dd>
+        <dt>प्रकार</dt><dd>${esc(r[H.type]||"")}</dd>
+        <dt>उपस्थिति</dt><dd>${esc(r[H.attendance]||"")}</dd>
         <dt>अतिथि</dt><dd>${guests.join(", ")||"—"}</dd>
       </dl>
-      <div style="margin-top:8px">${esc(r["कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में"]||"").replace(/\n/g,"<br>")}</div>
+      <div style="margin-top:8px">${esc(r[H.info]||"").replace(/\n/g,"<br>")}</div>
     </div>
     <div class="card">
       <div class="section">फोटो गैलरी</div>
       <div class="gallery" id="gal"></div>
     </div>`;
-
   const gal=document.getElementById('gal');
-  photos.forEach(u=>{
-    const tries=candidates(u);
-    const img=document.createElement('img');
-    let k=0; img.src=tries[k]||u;
-    img.onerror=()=>{ if(++k<tries.length) img.src=tries[k]; };
-    gal.appendChild(img);
-  });
+  photos.forEach(u=>{ const tries=candidates(u); const img=document.createElement('img'); let k=0; img.src=tries[k]||u; img.onerror=()=>{ if(++k<tries.length) img.src=tries[k]; }; gal.appendChild(img); });
 }
 
 /*** Player ***/
@@ -193,8 +214,11 @@ document.getElementById('start').onclick=async()=>{
     try{ rows = await loadCSV(CSV_URL_PROXY); }
     catch(e2){ alert("CSV लोड नहीं हो पाया"); return; }
   }
-  if(!rows.length){ alert("CSV खाली है"); return; }
-  // Fullscreen best for TV
+  // Photos-only (toggle)
+  const photosOnly = document.getElementById('photosOnly').checked;
+  if (photosOnly) rows = rows.filter(r => toPhotos(r[H.photos]).length > 0);
+
+  if(!rows.length){ alert("रिकॉर्ड नहीं मिले (शायद फोटो लिंक नहीं हैं)"); return; }
   if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
   checkOrientation(true);
   idx = 0; play();
