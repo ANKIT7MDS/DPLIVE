@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>प्रवास कार्यक्रम – Theme A (ENHANCED v2.1)</title>
+<title>प्रवास कार्यक्रम – Theme A (ENHANCED v2.1+)</title>
 <style>
 body { margin:0; font-family:"Noto Sans Devanagari","Hind",system-ui,Arial,sans-serif; background:#f7f8fb; color:#1b2941; }
 .wrap { max-width:1200px; margin:0 auto; padding:16px; }
-.topbar, .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+.topbar, .filters, .extras { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
 .btn { border:1px solid #1f3b73; background:#eef3ff; color:#1f3b73; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
 .btn:disabled { opacity:.5; cursor:default; }
-input, select { padding:8px 10px; border:1px solid #d6d9e0; border-radius:10px; background:#fff; }
+input, select, label { padding:8px 10px; border:1px solid #d6d9e0; border-radius:10px; background:#fff; }
+label.chk { display:inline-flex; align-items:center; gap:6px; border:0; padding:0; background:transparent; }
 .page { background:#fff; border:1px solid #e8e9ee; border-radius:16px; box-shadow:0 6px 18px rgba(0,0,0,.05); padding:18px; margin-top:10px; }
 .header { display:grid; grid-template-columns:80px 1fr 120px; gap:14px; align-items:center; border-bottom:4px solid #e77019; padding-bottom:10px; }
 .logo { width:80px; height:80px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff, #ffe7d6); border:2px solid #e77019; display:flex; align-items:center; justify-content:center; color:#9a3e00; font-weight:800; }
@@ -34,7 +35,7 @@ ul.bullets { margin:0; padding-left:18px; }
 .lbnav { position:absolute; top:50%; transform:translateY(-50%); font-size:30px; color:#fff; background:rgba(0,0,0,.4); padding:8px 12px; border-radius:10px; cursor:pointer; }
 .lbprev { left:14px; } .lbnext { right:14px; }
 .status { font-size:12px; color:#5c6a86; }
-@media print { .topbar, .filters { display:none; } .page { page-break-after:always; box-shadow:none; border:none; } }
+@media print { .topbar, .filters, .extras { display:none; } .page { page-break-after:always; box-shadow:none; border:none; } }
 /* v2.1 – Mobile photo size fix */
 @media (max-width: 640px) {
   .content { grid-template-columns: 1fr; }
@@ -65,15 +66,27 @@ ul.bullets { margin:0; padding-left:18px; }
     <div>
       मंडल: <select id="fMandal"><option value="">सभी</option></select>
       &nbsp; प्रकार: <select id="fType"><option value="">सभी</option></select>
+      &nbsp; <label class="chk"><input type="checkbox" id="fPhotoOnly"> केवल फोटो वाले</label> <!-- NEW -->
     </div>
     <div>
       तारीख: <input type="date" id="fFrom"> से <input type="date" id="fTo">
+      &nbsp; उपस्थिति: Min <input type="number" id="fAttMin" style="width:90px"> Max <input type="number" id="fAttMax" style="width:90px"> <!-- NEW -->
       &nbsp; <select id="sort">
         <option value="">क्रमबद्ध करें</option>
         <option value="date">तारीख</option>
         <option value="att">उपस्थिति</option>
       </select>
     </div>
+  </div>
+
+  <div class="extras">
+    <div>
+      <label class="chk"><input type="checkbox" id="autoPlay"> Auto‑advance</label> <!-- NEW -->
+      अंतराल (sec): <input type="number" id="autoInterval" value="12" min="5" max="60" style="width:80px"> <!-- NEW -->
+      <label class="chk"><input type="checkbox" id="autoRefresh"> Auto‑refresh</label> <!-- NEW -->
+      हर (min): <input type="number" id="refreshMin" value="5" min="1" max="60" style="width:70px"> <!-- NEW -->
+    </div>
+    <div></div>
   </div>
 
   <div id="page" class="page"></div>
@@ -114,8 +127,19 @@ const fFrom = document.getElementById('fFrom');
 const fTo = document.getElementById('fTo');
 const sortSel = document.getElementById('sort');
 const searchEl = document.getElementById('search');
+const fPhotoOnly = document.getElementById('fPhotoOnly'); // NEW
+const fAttMin = document.getElementById('fAttMin'); // NEW
+const fAttMax = document.getElementById('fAttMax'); // NEW
+
+// NEW: Auto advance / refresh controls
+const autoPlayEl = document.getElementById('autoPlay');
+const autoIntervalEl = document.getElementById('autoInterval');
+const autoRefreshEl = document.getElementById('autoRefresh');
+const refreshMinEl = document.getElementById('refreshMin');
 
 let rows = [], filtered = [], idx = 0;
+let autoPlayTimer = null; // NEW
+let autoRefreshTimer = null; // NEW
 
 // ------ Utils ------
 function parseCSV(text) {
@@ -127,7 +151,7 @@ function parseCSV(text) {
     i++;
   }
   if (cell.length || row.length) { row.push(cell); out.push(row); }
-  const header = out.shift().map(h => h.trim());
+  const header = out.shift().map(h => (h||"").trim()); // trim headers
   return out.map(r => { const o = {}; header.forEach((h,j) => o[h] = (r[j] || "").trim()); return o; });
 }
 function unique(vals){ return [...new Set(vals.filter(Boolean))]; }
@@ -200,6 +224,7 @@ function populateFilters(data){
   fMandal.innerHTML = '<option value="">सभी</option>' + mandals.map(m=>`<option>${m}</option>`).join("");
   fType.innerHTML   = '<option value="">सभी</option>' + types.map(t=>`<option>${t}</option>`).join("");
 }
+function hasPhotos(r){ return (r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).length>0; } // NEW
 function applyFilters(){
   let list = rows.slice();
   const q = searchEl.value.trim().toLowerCase();
@@ -208,6 +233,15 @@ function applyFilters(){
   const t=fType.value;   if(t) list=list.filter(r=>r[H.type]===t);
   const df=fFrom.value?new Date(fFrom.value):null; const dt=fTo.value?new Date(fTo.value):null;
   if (df||dt) list=list.filter(r=>{ const d=toDate(r[H.date]); if(!d) return false; if(df&&d<df) return false; if(dt&&d>dt) return false; return true; });
+
+  // NEW: Attendance range
+  const amin = parseInt(fAttMin.value||"",10); const amax = parseInt(fAttMax.value||"",10);
+  if(!isNaN(amin)) list = list.filter(r => (parseInt(r[H.attendance]||"0",10) || 0) >= amin);
+  if(!isNaN(amax)) list = list.filter(r => (parseInt(r[H.attendance]||"0",10) || 0) <= amax);
+
+  // NEW: Photo-only
+  if(fPhotoOnly.checked) list = list.filter(hasPhotos);
+
   const s=sortSel.value;
   if (s==="att") list.sort((a,b)=> (parseInt(b[H.attendance]||0) - parseInt(a[H.attendance]||0)));
   if (s==="date") list.sort((a,b)=> { const da=toDate(a[H.date])||0, db=toDate(b[H.date])||0; return db-da; });
@@ -230,12 +264,48 @@ async function init(){
   try{ rows=await loadCSV(CSV_URL); } catch(e){ try{ rows=await loadCSV(CSV_URL_PROXY); } catch(e2){ statusEl.textContent="लोड त्रुटि: CSV उपलब्ध नहीं"; return; } }
   if(!rows.length){ statusEl.textContent="रिकॉर्ड: 0 (CSV खाली?)"; return; }
   populateFilters(rows); filtered=rows.slice(); renderCurrent(); populateJump();
+  restartAutoRefresh(); // NEW
 }
 // Events
 prevBtn.onclick=()=>{ if(idx>0){ idx--; renderCurrent(); } };
 nextBtn.onclick=()=>{ if(idx<filtered.length-1){ idx++; renderCurrent(); } };
 jumpSel.onchange=(e)=>{ idx=parseInt(e.target.value||"0",10)||0; renderCurrent(); };
-searchEl.oninput=applyFilters; [fMandal,fType,fFrom,fTo,sortSel].forEach(el=>el.addEventListener('change',applyFilters));
+searchEl.oninput=applyFilters; [fMandal,fType,fFrom,fTo,sortSel,fPhotoOnly,fAttMin,fAttMax].forEach(el=>el.addEventListener('change',applyFilters));
+
+// NEW: Auto‑advance logic
+function restartAutoPlay(){
+  if(autoPlayTimer){ clearInterval(autoPlayTimer); autoPlayTimer=null; }
+  if(autoPlayEl.checked){
+    const sec = Math.max(5, Math.min(60, parseInt(autoIntervalEl.value||"12",10)||12));
+    autoPlayTimer = setInterval(()=>{
+      if(filtered.length){ if(idx<filtered.length-1){ idx++; } else { idx=0; } renderCurrent(); }
+    }, sec*1000);
+  }
+}
+autoPlayEl.addEventListener('change', restartAutoPlay);
+autoIntervalEl.addEventListener('change', restartAutoPlay);
+
+// NEW: Auto‑Refresh logic
+async function doRefresh(){
+  try{
+    const newRows = await loadCSV(CSV_URL).catch(()=>loadCSV(CSV_URL_PROXY));
+    if(newRows && newRows.length){
+      rows = newRows;
+      applyFilters(); // re-derive filtered with same UI filters
+    }
+  }catch(e){}
+}
+function restartAutoRefresh(){
+  if(autoRefreshTimer){ clearInterval(autoRefreshTimer); autoRefreshTimer=null; }
+  if(autoRefreshEl.checked){
+    const m = Math.max(1, Math.min(60, parseInt(refreshMinEl.value||"5",10)||5));
+    autoRefreshTimer = setInterval(doRefresh, m*60*1000);
+  }
+}
+autoRefreshEl.addEventListener('change', restartAutoRefresh);
+refreshMinEl.addEventListener('change', restartAutoRefresh);
+
+// Init now
 init();
 </script>
 </body>
