@@ -114,7 +114,8 @@ async function init(){
   populateFilters(); apply();
   document.getElementById('dlAgg').onclick=downloadAggregates;
   document.getElementById('clear').onclick=()=>{ fMandal.value=""; fType.value=""; fFrom.value=""; fTo.value=""; q.value=""; apply(); };
-  document.getElementById('goTV').onclick=()=>{ window.open("karyakram_tv_slideshow_v1_1.html","_blank"); };
+  document.getElementById('goTV').onclick=()=>{ window.open("karyakram_tv_slideshow.html", "_blank");
+ };
 }
 function populateFilters(){
   const mandals=uniq(rows.map(r=>r[H.mandal]));
