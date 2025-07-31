@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>प्रवास कार्यक्रम – Theme A (ENHANCED v2.1+)</title>
+<title>प्रवास कार्यक्रम – Theme A (ENHANCED v2.2)</title>
 <style>
 body { margin:0; font-family:"Noto Sans Devanagari","Hind",system-ui,Arial,sans-serif; background:#f7f8fb; color:#1b2941; }
 .wrap { max-width:1200px; margin:0 auto; padding:16px; }
@@ -36,7 +36,7 @@ ul.bullets { margin:0; padding-left:18px; }
 .lbprev { left:14px; } .lbnext { right:14px; }
 .status { font-size:12px; color:#5c6a86; }
 @media print { .topbar, .filters, .extras { display:none; } .page { page-break-after:always; box-shadow:none; border:none; } }
-/* v2.1 – Mobile photo size fix */
+/* Mobile photo size fix */
 @media (max-width: 640px) {
   .content { grid-template-columns: 1fr; }
   .gallery { grid-template-columns: repeat(2, 1fr) !important; }
@@ -57,7 +57,8 @@ ul.bullets { margin:0; padding-left:18px; }
     </div>
     <div>
       <input id="search" type="search" placeholder="खोजें (नाम/स्थान/अतिथि)" />
-      <button class="btn" onclick="window.print()">PDF</button>
+      <button class="btn" onclick="window.print()">PDF (Current Page)</button>
+      <button class="btn" id="bulkPdfBtn">Bulk PDF</button> <!-- NEW -->
       <span class="status" id="status">लोड हो रहा है…</span>
     </div>
   </div>
@@ -66,11 +67,11 @@ ul.bullets { margin:0; padding-left:18px; }
     <div>
       मंडल: <select id="fMandal"><option value="">सभी</option></select>
       &nbsp; प्रकार: <select id="fType"><option value="">सभी</option></select>
-      &nbsp; <label class="chk"><input type="checkbox" id="fPhotoOnly"> केवल फोटो वाले</label> <!-- NEW -->
+      &nbsp; <label class="chk"><input type="checkbox" id="fPhotoOnly"> केवल फोटो वाले</label>
     </div>
     <div>
       तारीख: <input type="date" id="fFrom"> से <input type="date" id="fTo">
-      &nbsp; उपस्थिति: Min <input type="number" id="fAttMin" style="width:90px"> Max <input type="number" id="fAttMax" style="width:90px"> <!-- NEW -->
+      &nbsp; उपस्थिति: Min <input type="number" id="fAttMin" style="width:90px"> Max <input type="number" id="fAttMax" style="width:90px">
       &nbsp; <select id="sort">
         <option value="">क्रमबद्ध करें</option>
         <option value="date">तारीख</option>
@@ -81,10 +82,10 @@ ul.bullets { margin:0; padding-left:18px; }
 
   <div class="extras">
     <div>
-      <label class="chk"><input type="checkbox" id="autoPlay"> Auto‑advance</label> <!-- NEW -->
-      अंतराल (sec): <input type="number" id="autoInterval" value="12" min="5" max="60" style="width:80px"> <!-- NEW -->
-      <label class="chk"><input type="checkbox" id="autoRefresh"> Auto‑refresh</label> <!-- NEW -->
-      हर (min): <input type="number" id="refreshMin" value="5" min="1" max="60" style="width:70px"> <!-- NEW -->
+      <label class="chk"><input type="checkbox" id="autoPlay"> Auto‑advance</label>
+      अंतराल (sec): <input type="number" id="autoInterval" value="12" min="5" max="60" style="width:80px">
+      <label class="chk"><input type="checkbox" id="autoRefresh"> Auto‑refresh</label>
+      हर (min): <input type="number" id="refreshMin" value="5" min="1" max="60" style="width:70px">
     </div>
     <div></div>
   </div>
@@ -102,74 +103,35 @@ ul.bullets { margin:0; padding-left:18px; }
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
 const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
 const MAX_PHOTOS = 4;
+const H = { ts:"Timestamp", date:"कार्यक्रम दिनांक", place:"कार्यक्रम स्थान", title:"कार्यक्रम का नाम",
+  attendance:"कार्यक्रम में कुल उपस्तिथि", guests:"कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि",
+  photos:"कार्यक्रम के फोटो", info:"कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में", mandal:"मंडल का नाम", type:"कार्यक्रम का प्रकार" };
 
-const H = {
-  ts: "Timestamp",
-  date: "कार्यक्रम दिनांक",
-  place: "कार्यक्रम स्थान",
-  title: "कार्यक्रम का नाम",
-  attendance: "कार्यक्रम में कुल उपस्तिथि",
-  guests: "कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि",
-  photos: "कार्यक्रम के फोटो",
-  info: "कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में",
-  mandal: "मंडल का नाम",
-  type: "कार्यक्रम का प्रकार"
-};
+const statusEl = document.getElementById('status'), pageEl = document.getElementById('page');
+const prevBtn = document.getElementById('prev'), nextBtn = document.getElementById('next'), jumpSel = document.getElementById('jump');
+const fMandal = document.getElementById('fMandal'), fType = document.getElementById('fType'), fFrom = document.getElementById('fFrom'), fTo = document.getElementById('fTo');
+const sortSel = document.getElementById('sort'), searchEl = document.getElementById('search');
+const fPhotoOnly = document.getElementById('fPhotoOnly'), fAttMin = document.getElementById('fAttMin'), fAttMax = document.getElementById('fAttMax');
+const autoPlayEl = document.getElementById('autoPlay'), autoIntervalEl = document.getElementById('autoInterval'), autoRefreshEl = document.getElementById('autoRefresh'), refreshMinEl = document.getElementById('refreshMin');
+const bulkBtn = document.getElementById('bulkPdfBtn'); // NEW
 
-const statusEl = document.getElementById('status');
-const pageEl = document.getElementById('page');
-const prevBtn = document.getElementById('prev');
-const nextBtn = document.getElementById('next');
-const jumpSel = document.getElementById('jump');
-const fMandal = document.getElementById('fMandal');
-const fType = document.getElementById('fType');
-const fFrom = document.getElementById('fFrom');
-const fTo = document.getElementById('fTo');
-const sortSel = document.getElementById('sort');
-const searchEl = document.getElementById('search');
-const fPhotoOnly = document.getElementById('fPhotoOnly'); // NEW
-const fAttMin = document.getElementById('fAttMin'); // NEW
-const fAttMax = document.getElementById('fAttMax'); // NEW
+let rows = [], filtered = [], idx = 0, autoPlayTimer=null, autoRefreshTimer=null;
 
-// NEW: Auto advance / refresh controls
-const autoPlayEl = document.getElementById('autoPlay');
-const autoIntervalEl = document.getElementById('autoInterval');
-const autoRefreshEl = document.getElementById('autoRefresh');
-const refreshMinEl = document.getElementById('refreshMin');
-
-let rows = [], filtered = [], idx = 0;
-let autoPlayTimer = null; // NEW
-let autoRefreshTimer = null; // NEW
-
-// ------ Utils ------
-function parseCSV(text) {
-  const out = []; let i=0, cell="", row=[], q=false;
-  while (i < text.length) {
-    const ch = text[i];
-    if (q) { if (ch === '"') { if (text[i+1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
-    else { if (ch === '"') q = true; else if (ch === ',') { row.push(cell); cell = ""; } else if (ch === '\n') { row.push(cell); out.push(row); row = []; cell = ""; } else if (ch !== '\r') cell += ch; }
-    i++;
-  }
-  if (cell.length || row.length) { row.push(cell); out.push(row); }
-  const header = out.shift().map(h => (h||"").trim()); // trim headers
-  return out.map(r => { const o = {}; header.forEach((h,j) => o[h] = (r[j] || "").trim()); return o; });
+function parseCSV(text){ const out=[]; let i=0, cell="", row=[], q=false;
+  while(i<text.length){ const ch=text[i];
+    if(q){ if(ch=='"'){ if(text[i+1]=='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else { if(ch=='"') q=true; else if(ch==','){ row.push(cell); cell=""; } else if(ch=='\n'){ row.push(cell); out.push(row); row=[]; cell=""; } else if(ch!='\r') cell+=ch; }
+    i++; }
+  if(cell.length||row.length){ row.push(cell); out.push(row); }
+  const header=out.shift().map(h => (h||"").trim());
+  return out.map(r => { const o={}; header.forEach((h,j)=>o[h]=(r[j]||"").trim()); return o; });
 }
 function unique(vals){ return [...new Set(vals.filter(Boolean))]; }
-function toDate(val){
-  if (!val) return null; const d = new Date(val); if (!isNaN(d)) return d;
-  const m = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (m){ const day=+m[1], mon=+m[2]-1, yr=+m[3]; const d2 = new Date(yr,mon,day); if(!isNaN(d2)) return d2; }
-  return null;
-}
+function toDate(val){ if (!val) return null; const d = new Date(val); if (!isNaN(d)) return d; const m = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); if (m){ const day=+m[1], mon=+m[2]-1, yr=+m[3]; const d2 = new Date(yr,mon,day); if(!isNaN(d2)) return d2; } return null; }
 function extractID(url){ if(!url) return ""; url=url.trim().replace(/^["']|["']$/g,""); let m=url.match(/[?&]id=([A-Za-z0-9_\-]+)/); if(m) return m[1]; m=url.match(/\/file\/d\/([A-Za-z0-9_\-]+)/); if(m) return m[1]; if(/^[A-Za-z0-9_-]{15,}$/.test(url)) return url; return ""; }
-function candidates(url){ const id=extractID(url); if(!id) return []; return [
-  "https://drive.google.com/uc?export=view&id="+id,
-  "https://drive.google.com/thumbnail?id="+id+"&sz=w1200",
-  "https://lh3.googleusercontent.com/d/"+id+"=w1200"
-]; }
+function candidates(url){ const id=extractID(url); if(!id) return []; return ["https://drive.google.com/uc?export=view&id="+id,"https://drive.google.com/thumbnail?id="+id+"&sz=w1200","https://lh3.googleusercontent.com/d/"+id+"=w1200"]; }
 function esc(s){ return (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
-// ------ Render ------
 function renderOne(r){
   const guests=(r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean);
   const photos=(r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);
@@ -205,43 +167,37 @@ function renderOne(r){
     const div=document.createElement("div"); div.className="thumb";
     const tries=candidates(u); const img=document.createElement("img"); let k=0; img.src=tries[k]||u; img.onerror=()=>{ if(++k<tries.length) img.src=tries[k]; };
     const a=document.createElement("a"); a.className="open-original"; a.href=(tries[0]||u); a.target="_blank"; a.textContent="Open original";
-    const w=document.createElement("div"); w.className="watch"; w.textContent="देखें"; w.onclick=()=>openLB(tries[0]||u, i, photos);
+    const w=document.createElement("div"); w.className="watch"; w.textContent="देखें"; w.onclick=()=>openLB(tries[0]||u, i, (r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS));
     div.append(img,a,w); gal.appendChild(div);
   });
 }
-// Lightbox
-let lbIdx=0, lbList=[];
-const lb=document.getElementById('lightbox'), lbImg=document.getElementById('lbImg');
+let lbIdx=0, lbList=[]; const lb=document.getElementById('lightbox'), lbImg=document.getElementById('lbImg');
 document.getElementById('lbPrev').onclick=()=>{ if(!lbList.length) return; lbIdx=(lbIdx-1+lbList.length)%lbList.length; lbImg.src=lbList[lbIdx]; };
 document.getElementById('lbNext').onclick=()=>{ if(!lbList.length) return; lbIdx=(lbIdx+1)%lbList.length; lbImg.src=lbList[lbIdx]; };
 lb.addEventListener('click',(e)=>{ if(e.target===lb) lb.classList.remove('open'); });
 function openLB(src,i,list){ lbList=list.map(u=> (candidates(u)[0]||u)); lbIdx=i; lbImg.src=lbList[lbIdx]; lb.classList.add('open'); }
 
-// ------ Filters / Search / Sort ------
+function uniqueListKey(r){ return [r[H.title]||"", r[H.place]||"", r[H.date]||""].join(" "); } // for search
+
 function populateFilters(data){
-  const mandals = unique(data.map(r=>r[H.mandal]));
-  const types   = unique(data.map(r=>r[H.type]));
+  const mandals = [...new Set(data.map(r=>r[H.mandal]).filter(Boolean))];
+  const types   = [...new Set(data.map(r=>r[H.type]).filter(Boolean))];
   fMandal.innerHTML = '<option value="">सभी</option>' + mandals.map(m=>`<option>${m}</option>`).join("");
   fType.innerHTML   = '<option value="">सभी</option>' + types.map(t=>`<option>${t}</option>`).join("");
 }
-function hasPhotos(r){ return (r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).length>0; } // NEW
+function hasPhotos(r){ return (r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).length>0; }
 function applyFilters(){
   let list = rows.slice();
   const q = searchEl.value.trim().toLowerCase();
-  if (q) list = list.filter(r => [r[H.title],r[H.place],r[H.mandal],r[H.type],r[H.guests],r[H.info]].join(" ").toLowerCase().includes(q));
+  if (q) list = list.filter(r => (uniqueListKey(r)+" "+(r[H.mandal]||"")+" "+(r[H.type]||"")+" "+(r[H.guests]||"")+" "+(r[H.info]||"")).toLowerCase().includes(q));
   const m=fMandal.value; if(m) list=list.filter(r=>r[H.mandal]===m);
   const t=fType.value;   if(t) list=list.filter(r=>r[H.type]===t);
   const df=fFrom.value?new Date(fFrom.value):null; const dt=fTo.value?new Date(fTo.value):null;
   if (df||dt) list=list.filter(r=>{ const d=toDate(r[H.date]); if(!d) return false; if(df&&d<df) return false; if(dt&&d>dt) return false; return true; });
-
-  // NEW: Attendance range
   const amin = parseInt(fAttMin.value||"",10); const amax = parseInt(fAttMax.value||"",10);
   if(!isNaN(amin)) list = list.filter(r => (parseInt(r[H.attendance]||"0",10) || 0) >= amin);
   if(!isNaN(amax)) list = list.filter(r => (parseInt(r[H.attendance]||"0",10) || 0) <= amax);
-
-  // NEW: Photo-only
   if(fPhotoOnly.checked) list = list.filter(hasPhotos);
-
   const s=sortSel.value;
   if (s==="att") list.sort((a,b)=> (parseInt(b[H.attendance]||0) - parseInt(a[H.attendance]||0)));
   if (s==="date") list.sort((a,b)=> { const da=toDate(a[H.date])||0, db=toDate(b[H.date])||0; return db-da; });
@@ -256,23 +212,19 @@ function renderCurrent(){
   renderOne(filtered[idx]); prevBtn.disabled=(idx===0); nextBtn.disabled=(idx>=filtered.length-1);
   statusEl.textContent="रिकॉर्ड: "+filtered.length; jumpSel.value=String(idx);
 }
-
-// ------ Data load ------
 async function loadCSV(url){ const res=await fetch(url,{cache:"no-store"}); if(!res.ok) throw new Error("CSV fetch failed "+res.status); const text=await res.text(); return parseCSV(text); }
 async function init(){
   statusEl.textContent="CSV लोड हो रहा है…";
   try{ rows=await loadCSV(CSV_URL); } catch(e){ try{ rows=await loadCSV(CSV_URL_PROXY); } catch(e2){ statusEl.textContent="लोड त्रुटि: CSV उपलब्ध नहीं"; return; } }
   if(!rows.length){ statusEl.textContent="रिकॉर्ड: 0 (CSV खाली?)"; return; }
   populateFilters(rows); filtered=rows.slice(); renderCurrent(); populateJump();
-  restartAutoRefresh(); // NEW
+  restartAutoRefresh();
 }
-// Events
 prevBtn.onclick=()=>{ if(idx>0){ idx--; renderCurrent(); } };
 nextBtn.onclick=()=>{ if(idx<filtered.length-1){ idx++; renderCurrent(); } };
 jumpSel.onchange=(e)=>{ idx=parseInt(e.target.value||"0",10)||0; renderCurrent(); };
 searchEl.oninput=applyFilters; [fMandal,fType,fFrom,fTo,sortSel,fPhotoOnly,fAttMin,fAttMax].forEach(el=>el.addEventListener('change',applyFilters));
 
-// NEW: Auto‑advance logic
 function restartAutoPlay(){
   if(autoPlayTimer){ clearInterval(autoPlayTimer); autoPlayTimer=null; }
   if(autoPlayEl.checked){
@@ -285,13 +237,12 @@ function restartAutoPlay(){
 autoPlayEl.addEventListener('change', restartAutoPlay);
 autoIntervalEl.addEventListener('change', restartAutoPlay);
 
-// NEW: Auto‑Refresh logic
 async function doRefresh(){
   try{
     const newRows = await loadCSV(CSV_URL).catch(()=>loadCSV(CSV_URL_PROXY));
     if(newRows && newRows.length){
       rows = newRows;
-      applyFilters(); // re-derive filtered with same UI filters
+      applyFilters();
     }
   }catch(e){}
 }
@@ -305,7 +256,19 @@ function restartAutoRefresh(){
 autoRefreshEl.addEventListener('change', restartAutoRefresh);
 refreshMinEl.addEventListener('change', restartAutoRefresh);
 
-// Init now
+// NEW: Bulk PDF – current filters के साथ नया पेज खुले
+bulkBtn.onclick = () => {
+  const params = new URLSearchParams();
+  if (fMandal.value) params.set("mandal", fMandal.value);
+  if (fType.value) params.set("type", fType.value);
+  if (fFrom.value) params.set("from", fFrom.value);
+  if (fTo.value)   params.set("to",   fTo.value);
+  if (fPhotoOnly.checked) params.set("photo", "1");
+  if (sortSel.value) params.set("sort", sortSel.value);
+  const url = "karyakram_bulk_pdf_export.html?" + params.toString();
+  window.open(url, "_blank");
+};
+
 init();
 </script>
 </body>
