@@ -40,6 +40,7 @@ input, select { padding:8px 10px; border:1px solid #d6d9e0; border-radius:10px; 
     <div class="controls">
       <button class="btn" onclick="window.print()">PDF</button>
       <button class="btn" id="dlAgg">Aggregates CSV</button>
+      <button class="btn" id="dlFiltered">Filtered CSV</button> <!-- NEW -->
       <button class="btn" id="goTV">TV मोड</button>
       <span class="small" id="status">लोड हो रहा है…</span>
     </div>
@@ -64,6 +65,20 @@ input, select { padding:8px 10px; border:1px solid #d6d9e0; border-radius:10px; 
     <div class="card">
       <h3>अतिथि – सबसे अधिक बार</h3>
       <canvas id="chartGuestDonut"></canvas>
+    </div>
+  </div>
+
+  <!-- NEW row for Trend + Bubble -->
+  <div class="grid" style="margin-top:16px">
+    <div class="card">
+      <h3>मासिक ट्रेंड (कुल प्रवास)</h3>
+      <canvas id="chartTrend"></canvas>
+      <div class="small">प्रत्येक माह में कुल प्रवास (फ़िल्टर लागू)।</div>
+    </div>
+    <div class="card">
+      <h3>Attendance vs Count (Bubble, मंडल)</h3>
+      <canvas id="chartBubble"></canvas>
+      <div class="small">X: प्रवास संख्या, Y: कुल उपस्थिति, बबल: मंडल (साइज़ कुल उपस्थिति, रंग auto)।</div>
     </div>
   </div>
 
@@ -96,26 +111,29 @@ const kpiEl   = document.getElementById('kpi');
 let rows=[], filtered=[];
 
 function parseCSV(text){
-  const out=[]; let i=0, cell="", row=[], q=false;
+  const out=[]; let i=0, cell="", row=[], qq=false;
   while(i<text.length){ const ch=text[i];
-    if(q){ if(ch=='"'){ if(text[i+1]=='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
-    else { if(ch=='"') q=true; else if(ch==','){ row.push(cell); cell=""; } else if(ch=='\n'){ row.push(cell); out.push(row); row=[]; cell=""; } else if(ch!='\r') cell+=ch; }
+    if(qq){ if(ch=='"'){ if(text[i+1]=='"'){cell+='"';i++;} else qq=false; } else cell+=ch; }
+    else { if(ch=='"') qq=true; else if(ch==','){ row.push(cell); cell=""; } else if(ch=='\n'){ row.push(cell); out.push(row); row=[]; cell=""; } else if(ch!='\r') cell+=ch; }
     i++;
   }
   if(cell.length||row.length){ row.push(cell); out.push(row); }
-  const header=out.shift(); return out.map(r=>Object.fromEntries(header.map((h,j)=>[h,(r[j]||"").trim()])));
+  const header=(out.shift()||[]).map(h=>(h||"").trim()); return out.map(r=>Object.fromEntries(header.map((h,j)=>[h,(r[j]||"").trim()])));
 }
 function uniq(a){ return [...new Set(a.filter(Boolean))]; }
-function toDate(s){ if(!s) return null; const d=new Date(s); return isNaN(d)?null:d; }
+function toDate(s){ if(!s) return null; const d=new Date(s); if(!isNaN(d)) return d;
+  const m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); if(m){ const dd=+m[1], mm=+m[2]-1, yy=+m[3]; const d2=new Date(yy,mm,dd); if(!isNaN(d2)) return d2; }
+  return null;
+}
 function loadCSV(url){ return fetch(url,{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(parseCSV); }
 
 async function init(){
   try{ rows=await loadCSV(CSV_URL); } catch(e){ rows=await loadCSV(CSV_URL_PROXY); }
   populateFilters(); apply();
   document.getElementById('dlAgg').onclick=downloadAggregates;
+  document.getElementById('dlFiltered').onclick=downloadFiltered; // NEW
   document.getElementById('clear').onclick=()=>{ fMandal.value=""; fType.value=""; fFrom.value=""; fTo.value=""; q.value=""; apply(); };
-  document.getElementById('goTV').onclick=()=>{ window.open("karyakram_tv_slideshow.html", "_blank");
- };
+  document.getElementById('goTV').onclick=()=>{ window.open("karyakram_tv_slideshow.html","_blank"); }; // FIX
 }
 function populateFilters(){
   const mandals=uniq(rows.map(r=>r[H.mandal]));
@@ -135,7 +153,7 @@ function apply(){
   const query=q.value.trim().toLowerCase();
   if(query) list=list.filter(r=>[r[H.title],r[H.place],r[H.mandal],r[H.type],r[H.guests]].join(" ").toLowerCase().includes(query));
   filtered=list; statusEl.textContent="रिकॉर्ड: "+filtered.length;
-  renderKPIs(); renderCharts(); renderTables();
+  renderKPIs(); renderCharts(); renderTables(); renderTrend(); renderBubble(); // NEW: extra charts
 }
 function num(x){ const n=parseInt(x,10); return isNaN(n)?0:n; }
 function renderKPIs(){
@@ -155,7 +173,7 @@ function groupCountNested(list,key1,key2){
   return map; // {type: {mandal: count}}
 }
 
-let chMandal, chProgramStack, chProgramPie, chGuestDonut;
+let chMandal, chProgramStack, chProgramPie, chGuestDonut, chTrend, chBubble;
 function renderCharts(){
   const perMandal=groupCount(filtered,H.mandal);
   const mandals=Object.keys(perMandal), counts=mandals.map(k=>perMandal[k]);
@@ -178,6 +196,36 @@ function renderCharts(){
   const gLabels=Object.keys(gmap), gCounts=gLabels.map(k=>gmap[k]);
   if(chGuestDonut) chGuestDonut.destroy();
   chGuestDonut=new Chart(document.getElementById('chartGuestDonut'),{type:'doughnut',data:{labels:gLabels,datasets:[{data:gCounts}]},options:{plugins:{legend:{position:'bottom'}}}});
+}
+
+// NEW: Monthly trend
+function monthKey(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+function renderTrend(){
+  const map={};
+  filtered.forEach(r=>{ const d=toDate(r[H.date]); if(!d) return; const k=monthKey(d); map[k]=(map[k]||0)+1; });
+  const keys=Object.keys(map).sort();
+  const vals=keys.map(k=>map[k]);
+  if(chTrend) chTrend.destroy();
+  chTrend=new Chart(document.getElementById('chartTrend'),{
+    type:'line',
+    data:{labels:keys,datasets:[{label:'कुल प्रवास',data:vals,tension:.3,fill:false}]},
+    options:{responsive:true,plugins:{legend:{display:false}}}
+  });
+}
+
+// NEW: Bubble (attendance vs count) by mandal
+function renderBubble(){
+  const perMandalCount=groupCount(filtered,H.mandal);
+  const perMandalAtt={};
+  filtered.forEach(r=>{ const m=r[H.mandal]||"—"; perMandalAtt[m]=(perMandalAtt[m]||0) + (parseInt(r[H.attendance]||0,10)||0); });
+  const labels=Object.keys(perMandalCount);
+  const data=labels.map(m=>({x:perMandalCount[m], y:perMandalAtt[m]||0, r:Math.max(6, Math.sqrt((perMandalAtt[m]||1))/4)}));
+  if(chBubble) chBubble.destroy();
+  chBubble=new Chart(document.getElementById('chartBubble'),{
+    type:'bubble',
+    data:{labels, datasets:[{label:'मंडल', data}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{title:{display:true,text:'प्रवास संख्या'}},y:{title:{display:true,text:'कुल उपस्थिति'}}}}
+  });
 }
 
 function tableFromMap(map,limit=10){
@@ -210,6 +258,20 @@ function downloadAggregates(){
   const blob=new Blob([lines.join("\n")],{type:"text/csv"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="aggregates.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
+
+// NEW: Download filtered rows as CSV
+function downloadFiltered(){
+  if(!filtered.length){ alert("कोई रिकॉर्ड नहीं"); return; }
+  const headers = Object.keys(filtered[0]);
+  const lines = [headers.join(",")];
+  filtered.forEach(r=>{
+    const row = headers.map(h => String(r[h]??"").replaceAll('"','""'));
+    lines.push(row.map(v=>`"${v}"`).join(","));
+  });
+  const blob=new Blob([lines.join("\n")],{type:"text/csv"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="filtered_rows.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
 init();
 </script>
 </body>
