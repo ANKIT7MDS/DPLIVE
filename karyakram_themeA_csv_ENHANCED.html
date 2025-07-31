@@ -1,5 +1,80 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="hi">
-<head><meta charset="utf-8"><title>karyakram_themeA_csv_ENHANCED.html</title></head>
-<body><h1>karyakram_themeA_csv_ENHANCED.html</h1><p>यह पेज "karyakram_themeA_csv_ENHANCED.html" के लिए placeholder है।</p></body>
+<head>
+  <meta charset="UTF-8">
+  <title>कार्यक्रम Theme A</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 20px; }
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+    .photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .photos img { max-height: 200px; border-radius: 8px; border: 2px solid #ccc; }
+    button { margin: 10px 0; padding: 10px 20px; font-size: 16px; border-radius: 6px; border: none; background: #007bff; color: white; cursor: pointer; }
+    button:hover { background: #0056b3; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 id="title">Loading...</h2>
+    <p><strong>दिनांक:</strong> <span id="date"></span></p>
+    <p><strong>स्थान:</strong> <span id="place"></span></p>
+    <p><strong>उपस्थिति:</strong> <span id="attendance"></span></p>
+    <p><strong>प्रमुख अतिथि:</strong> <span id="guests"></span></p>
+    <p><strong>जानकारी:</strong> <span id="info"></span></p>
+    <p><strong>मंडल:</strong> <span id="mandal"></span></p>
+    <p><strong>कार्यक्रम प्रकार:</strong> <span id="type"></span></p>
+    <div class="photos" id="photos"></div>
+    <button onclick="next()">Next कार्यक्रम</button>
+  </div>
+  <script>
+    let index = 0, data = [];
+
+    function extractDriveID(url) {
+      const match = url.match(/[-\w]{25,}/);
+      return match ? match[0] : null;
+    }
+
+    function render(item) {
+      document.getElementById("title").innerText = item["कार्यक्रम का नाम"] || "";
+      document.getElementById("date").innerText = item["कार्यक्रम दिनांक"] || "";
+      document.getElementById("place").innerText = item["कार्यक्रम स्थान"] || "";
+      document.getElementById("attendance").innerText = item["कार्यक्रम में कुल उपस्तिथि"] || "";
+      document.getElementById("guests").innerText = item["कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि"] || "";
+      document.getElementById("info").innerText = item["कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में"] || "";
+      document.getElementById("mandal").innerText = item["मंडल का नाम"] || "";
+      document.getElementById("type").innerText = item["कार्यक्रम का प्रकार"] || "";
+
+      const photoLinks = (item["कार्यक्रम के फोटो"] || "").split(",").map(l => l.trim()).filter(Boolean);
+      const container = document.getElementById("photos");
+      container.innerHTML = "";
+
+      photoLinks.slice(0, 4).forEach(link => {
+        const id = extractDriveID(link);
+        if (id) {
+          const img = document.createElement("img");
+          img.src = `https://drive.google.com/uc?export=view&id=${id}`;
+          container.appendChild(img);
+        }
+      });
+    }
+
+    function next() {
+      if (data.length === 0) return;
+      render(data[index]);
+      index = (index + 1) % data.length;
+    }
+
+    fetch("https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv")
+      .then(res => res.text())
+      .then(text => {
+        const lines = text.trim().split("\n").map(l => l.split(","));
+        const headers = lines.shift();
+        data = lines.map(row => {
+          let obj = {};
+          row.forEach((val, i) => obj[headers[i]] = val);
+          return obj;
+        });
+        next();
+      });
+  </script>
+</body>
 </html>

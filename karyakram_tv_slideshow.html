@@ -1,5 +1,59 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="hi">
-<head><meta charset="utf-8"><title>karyakram_tv_slideshow.html</title></head>
-<body><h1>karyakram_tv_slideshow.html</h1><p>यह पेज "karyakram_tv_slideshow.html" के लिए placeholder है।</p></body>
+<head>
+  <meta charset="UTF-8">
+  <title>TV मोड - BJP कार्यक्रम</title>
+  <style>
+    body { margin: 0; background: black; color: white; font-family: sans-serif; font-size: 2.5vh; }
+    .slide { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; padding: 2rem; text-align: center; }
+    img { max-height: 60vh; margin-top: 1rem; border: 5px solid white; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="slide" id="slide">लोड हो रहा है...</div>
+  <script>
+    let data = [], index = 0;
+
+    function extractDriveID(url) {
+      const match = url.match(/[-\w]{25,}/);
+      return match ? match[0] : null;
+    }
+
+    function showSlide() {
+      if (data.length === 0) return;
+      const item = data[index];
+      const name = item["कार्यक्रम का नाम"] || "";
+      const place = item["कार्यक्रम स्थान"] || "";
+      const date = item["कार्यक्रम दिनांक"] || "";
+      const photos = (item["कार्यक्रम के फोटो"] || "").split(",").map(p => p.trim()).filter(Boolean);
+      const id = extractDriveID(photos[0] || "");
+      const imgTag = id ? `<img src="https://drive.google.com/uc?export=view&id=${id}">` : "";
+
+      document.getElementById("slide").innerHTML = `
+        <div>
+          <div><strong>${name}</strong></div>
+          <div>${place}</div>
+          <div>${date}</div>
+          ${imgTag}
+        </div>
+      `;
+
+      index = (index + 1) % data.length;
+    }
+
+    fetch("https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv")
+      .then(res => res.text())
+      .then(text => {
+        const lines = text.trim().split("\n").map(l => l.split(","));
+        const headers = lines.shift();
+        data = lines.map(row => {
+          let obj = {};
+          row.forEach((val, i) => obj[headers[i]] = val);
+          return obj;
+        });
+        showSlide();
+        setInterval(showSlide, 8000);
+      });
+  </script>
+</body>
 </html>
