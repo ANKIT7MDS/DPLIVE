@@ -29,14 +29,19 @@ iframe { width:100%; height:100%; border:0; background:#fff; }
       <button class="btn" id="hardRefresh">रिफ्रेश</button>
     </div>
   </div>
+
   <div class="tabs">
-    <button class="tab active" data-url="karyakram_themeA_csv_ENHANCED_v2_1.html">Theme A (डिफ़ॉल्ट)</button>
+    <!-- 👇 आपके repo के exact फ़ाइल-नाम -->
+    <button class="tab active" data-url="karyakram_themeA_csv_ENHANCED.html">Theme A (डिफ़ॉल्ट)</button>
     <button class="tab" data-url="karyakram_analytics_dashboard.html">Analytics Dashboard</button>
-    <button class="tab" data-url="karyakram_tv_slideshow_v1_1.html">TV मोड</button>
+    <button class="tab" data-url="karyakram_tv_slideshow.html">TV मोड</button>
   </div>
+
   <div class="frame-wrap">
-    <iframe id="frame" src="karyakram_themeA_csv_ENHANCED_v2_1.html?v=1" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <!-- डिफ़ॉल्ट लोड वही फ़ाइल; cache-bust के लिये v=timestamp -->
+    <iframe id="frame" src="karyakram_themeA_csv_ENHANCED.html?v=1" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
   </div>
+
   <div class="footer">© 2025 • Hub • अगर पेज न दिखे तो ऊपर "रिफ्रेश" दबाएँ।</div>
 
 <script>
@@ -49,7 +54,7 @@ function setActive(tabEl) {
   tabs.forEach(t => t.classList.remove('active'));
   tabEl.classList.add('active');
   const url = tabEl.getAttribute('data-url');
-  frame.src = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+  frame.src = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now(); // cache-bust
   location.hash = '#page=' + encodeURIComponent(url); // deep-link
 }
 tabs.forEach(t => t.addEventListener('click', () => setActive(t)));
