@@ -33,6 +33,8 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
   dl{ grid-template-columns:130px 1fr; }
 }
 @media (max-width: 900px) and (orientation:landscape){ .gallery img{ height: clamp(220px, 38vh, 420px); } }
+label.small { font-size:12px; color:#eee; display:inline-flex; align-items:center; gap:6px; }
+input[type="number"]{ width:70px; border-radius:8px; border:1px solid #345; background:#18203a; color:#fff; padding:6px 8px; }
 </style>
 </head>
 <body>
@@ -41,10 +43,14 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
   <button class="btn" id="pause">Pause</button>
   <button class="btn" id="prev">◀</button>
   <button class="btn" id="next">▶</button>
+  <label class="small"><input type="checkbox" id="photosOnly"> Photos only</label> <!-- NEW -->
+  <label class="small">Interval(s) <input type="number" id="sec" value="12" min="5" max="60"></label>
+  <label class="small"><input type="checkbox" id="autoRefresh"> Auto‑refresh</label>
+  <label class="small">Every (min) <input type="number" id="min" value="5" min="1" max="60"></label>
   <button class="btn" id="hide">Hide UI</button>
 </div>
 <div class="container"><div class="slide" id="slide"></div></div>
-<div class="hint">Keys: F = Fullscreen, Space = Pause/Play, ←/→ = Prev/Next</div>
+<div class="hint">Keys: F = Fullscreen, Space = Pause/Play, ←/→ = Prev/Next, N = Photos‑only</div>
 
 <div class="rotate-overlay" id="rot">
   <div class="box">
@@ -58,68 +64,46 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
 </div>
 
 <script>
-/* ====== CONFIG ====== */
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
 const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
 const MAX_PHOTOS = 4;
+let rows=[], allRows=[], idx=0, timer=null, playing=false;
+let autoHideTimer=null, photosOnly=false, interval=12000, refreshTimer=null;
 
-/* ====== STATE ====== */
-let rows=[], idx=0, timer=null, playing=false, interval=12000;
-let autoHideTimer=null;
-
-/* ====== CSV PARSER (Trimmed headers FIX) ====== */
 function parseCSV(text){
   const out=[]; let i=0,c="",row=[],q=false;
   while(i<text.length){
     const ch=text[i];
     if(q){ if(ch=='"'){ if(text[i+1]=='"'){c+='"';i++;} else q=false; } else c+=ch; }
-    else { if(ch=='"') q=true;
-           else if(ch==','){ row.push(c); c=""; }
-           else if(ch=='\n'){ row.push(c); out.push(row); row=[]; c=""; }
-           else if(ch!='\r') c+=ch; }
+    else { if(ch=='"') q=true; else if(ch==','){ row.push(c); c=""; } else if(ch=='\n'){ row.push(c); out.push(row); row=[]; c=""; } else if(ch!='\r') c+=ch; }
     i++;
   }
   if(c.length||row.length){ row.push(c); out.push(row); }
-
-  // 🔧 Trim headers so keys match even if sheet has spaces
-  const header = (out.shift() || []).map(h => (h||"").trim());
-  return out.map(r => Object.fromEntries(header.map((h,j)=>[h,(r[j]||"").trim()])));
+  const h=(out.shift()||[]).map(x=>(x||"").trim()); // TRIM headers
+  return out.map(r=>Object.fromEntries(h.map((x,j)=>[x,(r[j]||"").trim()])));
 }
-
-/* ====== HELPERS ====== */
 function loadCSV(u){ return fetch(u,{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(parseCSV); }
-function extractID(url){
-  if(!url) return "";
-  url=url.trim();
-  let m=url.match(/[?&]id=([\w-]+)/); if(m) return m[1];
-  m=url.match(/\/file\/d\/([\w-]+)/); if(m) return m[1];
-  if(/^[\w-]{15,}$/.test(url)) return url;
-  return "";
-}
-function candidates(url){
-  const id = extractID(url);
-  if(!id) return [];
-  return [
-    `https://drive.google.com/uc?export=view&id=${id}`,
-    `https://drive.google.com/thumbnail?id=${id}&sz=w1200`,
-    `https://lh3.googleusercontent.com/d/${id}=w1200`
-  ];
-}
+function extractID(url){ if(!url)return""; url=url.trim(); let m=url.match(/[?&]id=([\w-]+)/); if(m)return m[1]; m=url.match(/\/file\/d\/([\w-]+)/); if(m)return m[1]; if(/^[\w-]{15,}$/.test(url))return url; return""; }
+function candidates(url){ const id=extractID(url); if(!id)return[]; return[`https://drive.google.com/uc?export=view&id=${id}`,`https://drive.google.com/thumbnail?id=${id}&sz=w1200`,`https://lh3.googleusercontent.com/d/${id}=w1200`]; }
 function toPhotos(f){ return (f||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS); }
+function hasPhotos(r){ return toPhotos(r["कार्यक्रम के फोटो"]).length>0; }
 function esc(s){ return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
-/* ====== RENDER ====== */
+function prefetchNext(){
+  const n = (idx+1)%rows.length;
+  const r = rows[n]; if(!r) return;
+  const photos = toPhotos(r["कार्यक्रम के फोटो"]);
+  if(photos[0]){ const tries=candidates(photos[0]); if(tries[0]){ const im=new Image(); im.src=tries[0]; } }
+}
+
 function render(r){
   const el=document.getElementById('slide');
   const guests=(r["कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि"]||"").split(",").map(s=>s.trim()).filter(Boolean);
   const photos=toPhotos(r["कार्यक्रम के फोटो"]);
   el.innerHTML=`
-    <div class="header">
-      <div class="h1">माननीय जिला अध्यक्ष जी का प्रवास कार्यक्रम</div>
-      <div class="meta">${idx+1} / ${rows.length}</div>
-    </div>
-    <div class="card">
-      <div class="section">कार्यक्रम विवरण</div>
+    <div class="header"><div class="h1">माननीय जिला अध्यक्ष जी का प्रवास कार्यक्रम</div>
+    <div class="meta">${idx+1} / ${rows.length}</div></div>
+    <div class="card"><div class="section">कार्यक्रम विवरण</div>
       <dl>
         <dt>तारीख</dt><dd>${esc(r["कार्यक्रम दिनांक"]||"")}</dd>
         <dt>स्थान</dt><dd>${esc(r["कार्यक्रम स्थान"]||"")}</dd>
@@ -130,53 +114,67 @@ function render(r){
       </dl>
       <div style="margin-top:8px">${esc(r["कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में"]||"").replace(/\n/g,"<br>")}</div>
     </div>
-    <div class="card">
-      <div class="section">फोटो गैलरी</div>
+    <div class="card"><div class="section">फोटो गैलरी</div>
       <div class="gallery" id="gal"></div>
     </div>`;
   const gal=document.getElementById('gal');
-  photos.forEach(u=>{
-    const tries=candidates(u);
-    const img=document.createElement('img');
-    let k=0; img.src=tries[k]||u;
-    img.onerror=()=>{ if(++k<tries.length) img.src=tries[k]; };
-    gal.appendChild(img);
-  });
+  photos.forEach(u=>{const tries=candidates(u);const img=document.createElement('img');let k=0;img.src=tries[k]||u;img.onerror=()=>{if(++k<tries.length)img.src=tries[k];};gal.appendChild(img);});
+  prefetchNext();
 }
 
-/* ====== PLAYBACK ====== */
 function play(){ if(playing) return; playing=true; tick(); timer=setInterval(next, interval); }
 function pause(){ playing=false; if(timer){clearInterval(timer);timer=null;} }
 function next(){ idx=(idx+1)%rows.length; render(rows[idx]); }
 function prev(){ idx=(idx-1+rows.length)%rows.length; render(rows[idx]); }
 function tick(){ render(rows[idx]); }
 
-/* ====== UI Auto-hide ====== */
 function scheduleHide(){ clearTimeout(autoHideTimer); autoHideTimer=setTimeout(()=>document.getElementById('controls').classList.add('hidden'), 3500); }
 function showUI(){ document.getElementById('controls').classList.remove('hidden'); scheduleHide(); }
 ['mousemove','touchstart','keydown'].forEach(ev=>document.addEventListener(ev,showUI,{passive:true}));
 document.getElementById('hide').onclick=()=>document.getElementById('controls').classList.toggle('hidden');
 scheduleHide();
 
-/* ====== BUTTONS / KEYS ====== */
+function applyPhotoOnly(){
+  rows = photosOnly ? allRows.filter(hasPhotos) : allRows.slice();
+  idx = 0;
+  if(rows.length) render(rows[0]);
+}
+
 document.getElementById('start').onclick=async()=>{
-  try{ rows=await loadCSV(CSV_URL); }catch(e){ rows=await loadCSV(CSV_URL_PROXY); }
-  if(rows.length===0){ alert("CSV खाली है"); return; }
+  try{allRows=await loadCSV(CSV_URL);}catch(e){allRows=await loadCSV(CSV_URL_PROXY);}
+  applyPhotoOnly();
+  if(rows.length===0){alert("CSV खाली है");return;}
+  const s = parseInt(document.getElementById('sec').value||"12",10); interval = Math.max(5, Math.min(60, s))*1000;
   if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
-  checkOrientation(true); play();
+  checkOrientation(true); play(); restartAutoRefresh();
 };
 document.getElementById('pause').onclick=()=>{ if(playing) pause(); else play(); };
 document.getElementById('next').onclick=next;
 document.getElementById('prev').onclick=prev;
+document.getElementById('photosOnly').onchange=(e)=>{ photosOnly = e.target.checked; applyPhotoOnly(); };
 
 document.addEventListener('keydown',e=>{
   if(e.key===' '){ e.preventDefault(); if(playing) pause(); else play(); }
   if(e.key==='ArrowRight') next();
   if(e.key==='ArrowLeft') prev();
   if(e.key.toLowerCase()==='f'){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(()=>{}); }
+  if(e.key.toLowerCase()==='n'){ photosOnly=!photosOnly; document.getElementById('photosOnly').checked=photosOnly; applyPhotoOnly(); } // NEW
 });
 
-/* ====== Orientation overlay ====== */
+// Auto‑refresh CSV
+function restartAutoRefresh(){
+  if(refreshTimer){ clearInterval(refreshTimer); refreshTimer=null; }
+  if(document.getElementById('autoRefresh').checked){
+    const m = Math.max(1, Math.min(60, parseInt(document.getElementById('min').value||"5",10)||5));
+    refreshTimer = setInterval(async ()=>{
+      try{ const nr = await loadCSV(CSV_URL).catch(()=>loadCSV(CSV_URL_PROXY)); if(nr?.length){ allRows = nr; applyPhotoOnly(); } }catch(e){}
+    }, m*60*1000);
+  }
+}
+document.getElementById('autoRefresh').onchange=restartAutoRefresh;
+document.getElementById('min').onchange=restartAutoRefresh;
+
+// Orientation overlay (portrait)
 const rot=document.getElementById('rot');
 function checkOrientation(showFirst){
   const portrait = window.matchMedia("(orientation: portrait)").matches;
