@@ -1,16 +1,215 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="hi">
 <head>
-  <meta charset="UTF-8">
-  <title>Analytics डैशबोर्ड</title>
-  <style>
-    body { background: #f9f9f9; font-family: sans-serif; padding: 2em; }
-    h1 { text-align: center; color: #444; }
-    .coming-soon { text-align: center; font-size: 1.5em; margin-top: 50px; color: #888; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>प्रवास कार्यक्रम – Analytics Dashboard</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { margin:0; font-family:"Noto Sans Devanagari","Hind",system-ui,Arial,sans-serif; background:#f6f7fb; color:#15233b; }
+.wrap { max-width:1300px; margin:0 auto; padding:16px; }
+.topbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+.controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.btn { border:1px solid #1f3b73; background:#eef3ff; color:#1f3b73; padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600; }
+input, select { padding:8px 10px; border:1px solid #d6d9e0; border-radius:10px; background:#fff; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px; }
+.card { background:#fff; border:1px solid #e7e9f0; border-radius:14px; box-shadow:0 6px 18px rgba(0,0,0,.05); padding:14px; }
+.card h3 { margin:0 0 10px; color:#183566; }
+.table { width:100%; border-collapse:collapse; }
+.table th,.table td { padding:8px 10px; border-bottom:1px solid #eef1f6; text-align:left; }
+.small { font-size:12px; color:#5b6a84; }
+.kpi { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.kpi .item { background:#fff; border:1px solid #e7e9f0; border-radius:14px; padding:12px; text-align:center; }
+.kpi .item .val { font-size:24px; font-weight:800; color:#183566; }
+.kpi .item .lbl { color:#5b6a84; font-size:13px; }
+@media (max-width: 1000px) { .grid { grid-template-columns:1fr; } .kpi { grid-template-columns:repeat(2,1fr); } }
+@media print { .topbar { display:none; } .card { page-break-inside:avoid; } }
+</style>
 </head>
 <body>
-  <h1>📊 BJP प्रवास कार्यक्रम डैशबोर्ड</h1>
-  <div class="coming-soon">यह सेक्शन जल्द ही चार्ट, रिपोर्ट और विश्लेषण के साथ अपडेट किया जाएगा।</div>
+<div class="wrap">
+  <div class="topbar">
+    <div class="controls">
+      मंडल: <select id="fMandal"><option value="">सभी</option></select>
+      प्रकार: <select id="fType"><option value="">सभी</option></select>
+      तारीख: <input type="date" id="fFrom"> से <input type="date" id="fTo">
+      <button class="btn" id="clear">क्लियर</button>
+      <input id="q" type="search" placeholder="खोजें (नाम/स्थान/अतिथि)" style="min-width:240px"/>
+    </div>
+    <div class="controls">
+      <button class="btn" onclick="window.print()">PDF</button>
+      <button class="btn" id="dlAgg">Aggregates CSV</button>
+      <button class="btn" id="goTV">TV मोड</button>
+      <span class="small" id="status">लोड हो रहा है…</span>
+    </div>
+  </div>
+
+  <div class="kpi" id="kpi"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>मंडल-वाइज प्रवास संख्या</h3>
+      <canvas id="chartMandal"></canvas>
+    </div>
+    <div class="card">
+      <h3>कार्यक्रम-वाइज प्रवास (मंडल के अनुसार)</h3>
+      <canvas id="chartProgramStack"></canvas>
+      <div class="small">स्टैक्ड बार – प्रत्येक कार्यक्रम प्रकार में किन-किन मंडलों में कितने प्रवास।</div>
+    </div>
+    <div class="card">
+      <h3>शीर्ष कार्यक्रम (संख्या के आधार पर)</h3>
+      <canvas id="chartProgramPie"></canvas>
+    </div>
+    <div class="card">
+      <h3>अतिथि – सबसे अधिक बार</h3>
+      <canvas id="chartGuestDonut"></canvas>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h3>अधिक प्रवास वाले मंडल (Top)</h3><table class="table" id="tblTopMandal"></table></div>
+    <div class="card"><h3>कम प्रवास वाले मंडल (Bottom)</h3><table class="table" id="tblLowMandal"></table></div>
+    <div class="card"><h3>कार्यक्रम प्रकार – Top</h3><table class="table" id="tblTopProgram"></table></div>
+    <div class="card"><h3>अतिथि – Top</h3><table class="table" id="tblTopGuest"></table></div>
+  </div>
+</div>
+
+<script>
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR4o78Xk4MGw48WSeBe5pmHyqWaJl3lPz18LcA0QCPZmpiNNmkHbJBJS_iX1s63JvhqbOFCrQEMRNeE/pub?output=csv";
+const CSV_URL_PROXY = "https://corsproxy.io/?" + encodeURIComponent(CSV_URL);
+const H = {
+  ts:"Timestamp", date:"कार्यक्रम दिनांक", place:"कार्यक्रम स्थान", title:"कार्यक्रम का नाम",
+  attendance:"कार्यक्रम में कुल उपस्तिथि", guests:"कार्यक्रम में प्रमुख अतिथि , जनप्रतिनिधि",
+  photos:"कार्यक्रम के फोटो", info:"कार्यक्रम से सम्बंधित अन्य जानकारी संषिप्त में",
+  mandal:"मंडल का नाम", type:"कार्यक्रम का प्रकार"
+};
+
+const fMandal = document.getElementById('fMandal');
+const fType   = document.getElementById('fType');
+const fFrom   = document.getElementById('fFrom');
+const fTo     = document.getElementById('fTo');
+const q       = document.getElementById('q');
+const statusEl= document.getElementById('status');
+const kpiEl   = document.getElementById('kpi');
+
+let rows=[], filtered=[];
+
+function parseCSV(text){
+  const out=[]; let i=0, cell="", row=[], q=false;
+  while(i<text.length){ const ch=text[i];
+    if(q){ if(ch=='"'){ if(text[i+1]=='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else { if(ch=='"') q=true; else if(ch==','){ row.push(cell); cell=""; } else if(ch=='\n'){ row.push(cell); out.push(row); row=[]; cell=""; } else if(ch!='\r') cell+=ch; }
+    i++;
+  }
+  if(cell.length||row.length){ row.push(cell); out.push(row); }
+  const header=out.shift(); return out.map(r=>Object.fromEntries(header.map((h,j)=>[h,(r[j]||"").trim()])));
+}
+function uniq(a){ return [...new Set(a.filter(Boolean))]; }
+function toDate(s){ if(!s) return null; const d=new Date(s); return isNaN(d)?null:d; }
+function loadCSV(url){ return fetch(url,{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(parseCSV); }
+
+async function init(){
+  try{ rows=await loadCSV(CSV_URL); } catch(e){ rows=await loadCSV(CSV_URL_PROXY); }
+  populateFilters(); apply();
+  document.getElementById('dlAgg').onclick=downloadAggregates;
+  document.getElementById('clear').onclick=()=>{ fMandal.value=""; fType.value=""; fFrom.value=""; fTo.value=""; q.value=""; apply(); };
+  document.getElementById('goTV').onclick=()=>{ window.open("karyakram_tv_slideshow_v1_1.html","_blank"); };
+}
+function populateFilters(){
+  const mandals=uniq(rows.map(r=>r[H.mandal]));
+  const types  =uniq(rows.map(r=>r[H.type]));
+  fMandal.innerHTML='<option value="">सभी</option>'+mandals.map(m=>`<option>${m}</option>`).join("");
+  fType.innerHTML  ='<option value="">सभी</option>'+types.map(t=>`<option>${t}</option>`).join("");
+}
+[fMandal,fType,fFrom,fTo].forEach(el=>el.addEventListener('change',apply));
+q.addEventListener('input',apply);
+
+function apply(){
+  let list=rows.slice();
+  const m=fMandal.value, t=fType.value, df=fFrom.value?new Date(fFrom.value):null, dt=fTo.value?new Date(fTo.value):null;
+  if(m) list=list.filter(r=>r[H.mandal]===m);
+  if(t) list=list.filter(r=>r[H.type]===t);
+  if(df||dt) list=list.filter(r=>{const d=toDate(r[H.date]); if(!d) return false; if(df&&d<df) return false; if(dt&&d>dt) return false; return true;});
+  const query=q.value.trim().toLowerCase();
+  if(query) list=list.filter(r=>[r[H.title],r[H.place],r[H.mandal],r[H.type],r[H.guests]].join(" ").toLowerCase().includes(query));
+  filtered=list; statusEl.textContent="रिकॉर्ड: "+filtered.length;
+  renderKPIs(); renderCharts(); renderTables();
+}
+function num(x){ const n=parseInt(x,10); return isNaN(n)?0:n; }
+function renderKPIs(){
+  const total=filtered.length;
+  const totalAtt=filtered.reduce((s,r)=>s+num(r[H.attendance]),0);
+  const perMandal=groupCount(filtered,H.mandal);
+  const topMandal=Object.entries(perMandal).sort((a,b)=>b[1]-a[1])[0]||["—",0];
+  kpiEl.innerHTML = `
+    <div class="item"><div class="val">${total}</div><div class="lbl">कुल प्रवास (रिकॉर्ड)</div></div>
+    <div class="item"><div class="val">${totalAtt}</div><div class="lbl">कुल उपस्थिति</div></div>
+    <div class="item"><div class="val">${topMandal[0]}</div><div class="lbl">अधिक प्रवास वाला मंडल</div></div>
+    <div class="item"><div class="val">${Object.keys(perMandal).length}</div><div class="lbl">कुल मंडल</div></div>`;
+}
+function groupCount(list,key){ const map={}; list.forEach(r=>{ const k=r[key]||"—"; map[k]=(map[k]||0)+1; }); return map; }
+function groupCountNested(list,key1,key2){
+  const map={}; list.forEach(r=>{ const m=r[key1]||"—"; const t=r[key2]||"—"; map[t]=map[t]||{}; map[t][m]=(map[t][m]||0)+1; });
+  return map; // {type: {mandal: count}}
+}
+
+let chMandal, chProgramStack, chProgramPie, chGuestDonut;
+function renderCharts(){
+  const perMandal=groupCount(filtered,H.mandal);
+  const mandals=Object.keys(perMandal), counts=mandals.map(k=>perMandal[k]);
+  if(chMandal) chMandal.destroy();
+  chMandal=new Chart(document.getElementById('chartMandal'),{type:'bar',data:{labels:mandals,datasets:[{label:'प्रवास',data:counts}]},options:{responsive:true,plugins:{legend:{display:false}}}});
+
+  const nested=groupCountNested(filtered,H.mandal,H.type);
+  const types=Object.keys(nested);
+  const mset=uniq(filtered.map(r=>r[H.mandal]));
+  const datasets=mset.map(m=>({label:m,data:types.map(t=> (nested[t]&&nested[t][m])||0)}));
+  if(chProgramStack) chProgramStack.destroy();
+  chProgramStack=new Chart(document.getElementById('chartProgramStack'),{type:'bar',data:{labels:types,datasets},options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true}}}});
+
+  const perType=groupCount(filtered,H.type);
+  const tLabels=Object.keys(perType), tCounts=tLabels.map(k=>perType[k]);
+  if(chProgramPie) chProgramPie.destroy();
+  chProgramPie=new Chart(document.getElementById('chartProgramPie'),{type:'pie',data:{labels:tLabels,datasets:[{data:tCounts}]},options:{plugins:{legend:{position:'bottom'}}}});
+
+  const gmap={}; filtered.forEach(r=>{ (r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(g=>gmap[g]=(gmap[g]||0)+1); });
+  const gLabels=Object.keys(gmap), gCounts=gLabels.map(k=>gmap[k]);
+  if(chGuestDonut) chGuestDonut.destroy();
+  chGuestDonut=new Chart(document.getElementById('chartGuestDonut'),{type:'doughnut',data:{labels:gLabels,datasets:[{data:gCounts}]},options:{plugins:{legend:{position:'bottom'}}}});
+}
+
+function tableFromMap(map,limit=10){
+  const rows=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,limit);
+  return '<tr><th>नाम</th><th>संख्या</th></tr>'+rows.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+}
+function renderTables(){
+  const perMandal=groupCount(filtered,H.mandal);
+  document.getElementById('tblTopMandal').innerHTML=tableFromMap(perMandal,10);
+  const low=Object.entries(perMandal).sort((a,b)=>a[1]-b[1]).slice(0,10);
+  document.getElementById('tblLowMandal').innerHTML='<tr><th>नाम</th><th>संख्या</th></tr>'+low.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+
+  const perType=groupCount(filtered,H.type);
+  document.getElementById('tblTopProgram').innerHTML=tableFromMap(perType,10);
+
+  const gmap={}; filtered.forEach(r=>{ (r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(g=>gmap[g]=(gmap[g]||0)+1); });
+  document.getElementById('tblTopGuest').innerHTML=tableFromMap(gmap,10);
+}
+
+function downloadAggregates(){
+  const perMandal=groupCount(filtered,H.mandal);
+  const perType=groupCount(filtered,H.type);
+  const gmap={}; filtered.forEach(r=>{ (r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(g=>gmap[g]=(gmap[g]||0)+1); });
+
+  const lines=["Category,Name,Count"];
+  Object.entries(perMandal).forEach(([k,v])=>lines.push("Mandal,"+k.replaceAll(","," ")+","+v));
+  Object.entries(perType).forEach(([k,v])=>lines.push("ProgramType,"+k.replaceAll(","," ")+","+v));
+  Object.entries(gmap).forEach(([k,v])=>lines.push("Guest,"+k.replaceAll(","," ")+","+v));
+
+  const blob=new Blob([lines.join("\n")],{type:"text/csv"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="aggregates.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+init();
+</script>
 </body>
 </html>
