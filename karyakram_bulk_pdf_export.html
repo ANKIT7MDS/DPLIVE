@@ -120,7 +120,7 @@ function buildPageHTML(r, i, total){
   const photos=(r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);
   const gal = photos.map(u=>{
     const tries=candidates(u); const src=(tries[0]||u);
-    return `<img src="${src}" onerror="this.onerror=null;this.src='${tries[1]||src}'">`;
+    return `<img crossorigin="anonymous" src="${src}" onerror="this.onerror=null;this.src='${tries[1]||src}'">`;
   }).join("");
   return `
   <div class="page">
@@ -151,6 +151,19 @@ function buildPageHTML(r, i, total){
   </div>`;
 }
 
+// --- Ensure all images are loaded before converting to PDF (to avoid missing photos) ---
+async function waitForImages(root){
+  const imgs = Array.from(root.querySelectorAll('img'));
+  const perImageTimeout = 15000; // 15s per image
+  await Promise.all(imgs.map(img => new Promise(resolve => {
+    if (img.complete && img.naturalWidth > 0) return resolve();
+    const done = () => resolve();
+    img.addEventListener('load', done, {once:true});
+    img.addEventListener('error', done, {once:true});
+    setTimeout(done, perImageTimeout);
+  })));
+}
+
 function buildPreview(){
   applyFilters();
   printArea.innerHTML = "";
@@ -174,15 +187,16 @@ function buildPreview(){
   });
 }
 
-function downloadPDF(){
+async function downloadPDF(){
   if(!printArea.children.length){ alert("पहले Preview Pages क्लिक करें."); return; }
   const opt = {
     margin:       [10, 8, 10, 8],
     filename:     'Pravas_Programs.pdf',
     image:        { type: 'jpeg', quality: 0.95 },
-    html2canvas:  { scale: 2, useCORS: true },
+    html2canvas:  { scale: 2, useCORS: true, allowTaint: true, imageTimeout: 15000 },
     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
   };
+  await waitForImages(printArea);
   html2pdf().set(opt).from(printArea).save();
 }
 
