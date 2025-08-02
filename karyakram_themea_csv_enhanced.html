@@ -40,7 +40,7 @@ ul.bullets { margin:0; padding-left:18px; }
 @media (max-width: 640px) {
   .content { grid-template-columns: 1fr; }
   .gallery { grid-template-columns: repeat(2, 1fr) !important; }
-  .thumb img { height: 180px !important; }
+  .thumb img { height: 220px !important; }
 }
 @media (min-width: 641px) and (max-width: 900px) {
   .thumb img { height: clamp(220px, 28vw, 320px) !important; }
@@ -190,8 +190,8 @@ function applyFilters(){
   let list = rows.slice();
   const q = searchEl.value.trim().toLowerCase();
   if (q) list = list.filter(r => (uniqueListKey(r)+" "+(r[H.mandal]||"")+" "+(r[H.type]||"")+" "+(r[H.guests]||"")+" "+(r[H.info]||"")).toLowerCase().includes(q));
-  const m=fMandal.value; const mlist = (window.deepLinkMandal||null); if(mlist&&mlist.length){ list=list.filter(r=> mlist.includes(r[H.mandal])); } else if(m){ list=list.filter(r=>r[H.mandal]===m); }
-  const t=fType.value;   const tlist = (window.deepLinkType||null); if(tlist&&tlist.length){ list=list.filter(r=> tlist.includes(r[H.type])); } else if(t){ list=list.filter(r=>r[H.type]===t); }
+  const m=fMandal.value; if(m) list=list.filter(r=>r[H.mandal]===m);
+  const t=fType.value;   if(t) list=list.filter(r=>r[H.type]===t);
   const df=fFrom.value?new Date(fFrom.value):null; const dt=fTo.value?new Date(fTo.value):null;
   if (df||dt) list=list.filter(r=>{ const d=toDate(r[H.date]); if(!d) return false; if(df&&d<df) return false; if(dt&&d>dt) return false; return true; });
   const amin = parseInt(fAttMin.value||"",10); const amax = parseInt(fAttMax.value||"",10);
@@ -219,8 +219,6 @@ async function init(){
   if(!rows.length){ statusEl.textContent="रिकॉर्ड: 0 (CSV खाली?)"; return; }
   populateFilters(rows); filtered=rows.slice(); renderCurrent(); populateJump();
   restartAutoRefresh();
-  // If autoplay was enabled via URL, start it now
-  if (autoPlayEl.checked) { try { restartAutoPlay(); } catch(e){} }
 }
 prevBtn.onclick=()=>{ if(idx>0){ idx--; renderCurrent(); } };
 nextBtn.onclick=()=>{ if(idx<filtered.length-1){ idx++; renderCurrent(); } };
@@ -270,24 +268,6 @@ bulkBtn.onclick = () => {
   const url = "karyakram_bulk_pdf_export.html?" + params.toString();
   window.open(url, "_blank");
 };
-
-
-// --- Deep‑link URL params: mandal=Wardha|Nagpur&type=...&from=YYYY-MM-DD&to=YYYY-MM-DD&photos=1&attmin=25&attmax=500&autoplay=1&interval=12&refresh=5 ---
-(function(){
-  try{
-    const p = new URLSearchParams(location.search);
-    const m = p.get('mandal'); if (m){ if(m.includes('|')){ window.deepLinkMandal = m.split('|').map(s=>s.trim()).filter(Boolean); } else { fMandal.value = m; } }
-    const t = p.get('type');   if (t){ if(t.includes('|')){ window.deepLinkType = t.split('|').map(s=>s.trim()).filter(Boolean); } else { fType.value = t; } }
-    const from = p.get('from'); if (from) fFrom.value = from;
-    const to   = p.get('to');   if (to)   fTo.value = to;
-    if (p.get('photos')==='1' || p.get('photo')==='1') fPhotoOnly.checked = true;
-    const amin = p.get('attmin'); if (amin) fAttMin.value = amin;
-    const amax = p.get('attmax'); if (amax) fAttMax.value = amax;
-    if (p.get('autoplay')==='1') autoPlayEl.checked = true;
-    const sec = parseInt(p.get('interval')||'',10); if(!isNaN(sec)) autoIntervalEl.value = sec;
-    const ref = parseInt(p.get('refresh')||'',10); if(!isNaN(ref) && ref>0){ autoRefreshEl.checked = true; refreshMinEl.value = ref; }
-  }catch(e){ /* ignore */ }
-})();
 
 init();
 </script>

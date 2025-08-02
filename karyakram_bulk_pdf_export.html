@@ -120,7 +120,7 @@ function buildPageHTML(r, i, total){
   const photos=(r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);
   const gal = photos.map(u=>{
     const tries=candidates(u); const src=(tries[0]||u);
-    return `<img crossorigin="anonymous" src="${src}" onerror="this.onerror=null;this.src='${tries[1]||src}'">`;
+    return `<img src="${src}" onerror="this.onerror=null;this.src='${tries[1]||src}'">`;
   }).join("");
   return `
   <div class="page">
@@ -151,22 +151,87 @@ function buildPageHTML(r, i, total){
   </div>`;
 }
 
-// --- Ensure all images are loaded before converting to PDF (to avoid missing photos) ---
-async function waitForImages(root){
-  const imgs = Array.from(root.querySelectorAll('img'));
-  const perImageTimeout = 15000; // 15s per image
-  await Promise.all(imgs.map(img => new Promise(resolve => {
-    if (img.complete && img.naturalWidth > 0) return resolve();
-    const done = () => resolve();
-    img.addEventListener('load', done, {once:true});
-    img.addEventListener('error', done, {once:true});
-    setTimeout(done, perImageTimeout);
-  })));
+// --- Embed images as data URLs to avoid cross-origin canvas taint and missing photos ---
+async function fetchAsDataURL(url, timeoutMs=20000){
+  if(!url) throw new Error("empty url");
+  const ctrl = new AbortController();
+  const to = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try{
+    const res = await fetch(url, {mode:'cors', cache:'no-store', signal: ctrl.signal});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const blob = await res.blob();
+    return await new Promise((resolve,reject)=>{
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  } finally { clearTimeout(to); }
+}
+async function loadImageAsDataURLWithFallbacks(u){
+  const tries = candidates(u);
+  const seq = [];
+  if(tries && tries.length) seq.push(...tries);
+  if(!seq.length) seq.push(u);
+  // Also try proxied variants
+  const proxied = seq.map(x => "https://corsproxy.io/?" + encodeURIComponent(x));
+  const chain = [...seq, ...proxied];
+  for (let i=0;i<chain.length;i++){
+    try{ return await fetchAsDataURL(chain[i]); }catch(e){ /* try next */ }
+  }
+  // last resort: return u as-is (may still render or show placeholder style)
+  return u;
+}
+async function buildPageHTMLAsync(r, i, total){
+  const guests=(r[H.guests]||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const photoList=(r[H.photos]||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).slice(0,MAX_PHOTOS);
+  const imgTags = [];
+  for (let k=0; k<photoList.length; k++){
+    const src = await loadImageAsDataURLWithFallbacks(photoList[k]);
+    imgTags.push(`<img src="${src}" style="background:#000;border:1px solid #eee;border-radius:8px;width:100%;height:180px;object-fit:cover">`);
+  }
+  const gal = imgTags.join("");
+  return `
+  <div class="page">
+    <div class="header">
+      <div class="logo">BJ</div>
+      <div class="title">
+        <h1>${esc(r[H.title]||"")}</h1>
+        <div>${esc(r[H.place]||"")} • ${esc(r[H.date]||"")}</div>
+      </div>
+      <div class="meta">${i} / ${total}</div>
+    </div>
+    <div class="content">
+      <div class="card">
+        <h3 class="section-title">कार्यक्रम विवरण</h3>
+        <dl>
+          <dt>मंडल</dt><dd>${esc(r[H.mandal]||"")}</dd>
+          <dt>प्रकार</dt><dd>${esc(r[H.type]||"")}</dd>
+          <dt>उपस्थिति</dt><dd>${esc(r[H.attendance]||"")}</dd>
+          <dt>अतिथि</dt><dd>${guests.join(", ")||"—"}</dd>
+        </dl>
+        <div style="margin-top:8px">${esc(r[H.info]||"").replace(/\n/g,"<br>")}</div>
+      </div>
+      <div class="card">
+        <h3 class="section-title">फोटो</h3>
+        <div class="gallery">${gal}</div>
+      </div>
+    </div>
+  </div>`;
 }
 
-function buildPreview(){
+async function buildPreview(){
   applyFilters();
-  printArea.innerHTML = "";
+  printArea.innerHTML = ""; const total = (filtered||[]).length;
+  if(!filtered || !filtered.length){ statusEl.textContent='रिकॉर्ड: 0'; return; }
+  // Build pages with embedded data URLs
+  for (let i=0;i<filtered.length;i++){
+    const html = await buildPageHTMLAsync(filtered[i], i+1, total);
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    Array.from(div.children).forEach(ch => printArea.appendChild(ch));
+  }
+  statusEl.textContent = 'रिकॉर्ड: ' + total + ' • Preview ready';
   if(!filtered.length){ printArea.innerHTML="<div class='page'><b>कोई रिकॉर्ड नहीं मिला।</b></div>"; return; }
 
   const mode = groupSel.value; // "", "mandal", "month", "type"
@@ -187,16 +252,15 @@ function buildPreview(){
   });
 }
 
-async function downloadPDF(){
+function downloadPDF(){
   if(!printArea.children.length){ alert("पहले Preview Pages क्लिक करें."); return; }
   const opt = {
     margin:       [10, 8, 10, 8],
     filename:     'Pravas_Programs.pdf',
     image:        { type: 'jpeg', quality: 0.95 },
-    html2canvas:  { scale: 2, useCORS: true, allowTaint: true, imageTimeout: 15000 },
+    html2canvas:  { scale: 2, useCORS: true },
     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
   };
-  await waitForImages(printArea);
   html2pdf().set(opt).from(printArea).save();
 }
 

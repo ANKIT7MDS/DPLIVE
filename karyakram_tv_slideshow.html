@@ -29,7 +29,7 @@ dt { color:var(--muted); } dd { margin:0; color:#fff; }
 .rotate-overlay .box p{ margin:0 0 12px; color:#c9d6ff; } .rotate-overlay .box .btn{ background:#1f3b73; }
 @media (orientation:portrait){
   .slide{ width:96vw; height:96vh; grid-template-columns:1fr; }
-  .gallery{ grid-template-columns:1fr; } .gallery img{ height: min(35vh, 360px); }
+  .gallery{ grid-template-columns:1fr; } .gallery img{ height: min(40vh, 420px); }
   dl{ grid-template-columns:130px 1fr; }
 }
 @media (max-width: 900px) and (orientation:landscape){ .gallery img{ height: clamp(220px, 38vh, 420px); } }
@@ -185,36 +185,6 @@ window.addEventListener('orientationchange',()=>{ checkOrientation(false); });
 window.addEventListener('resize',()=>{ checkOrientation(false); });
 document.getElementById('continuePortrait').onclick=()=>{ rot.style.display='none'; play(); };
 document.getElementById('goFullscreen').onclick=()=>{ if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{}); };
-
-// --- Deep-link URL parameters: start=1, photos=1, interval=10, refresh=5 ---
-(function(){
-  try{
-    const p = new URLSearchParams(location.search);
-    const start = p.get('start') === '1';
-    const photos = p.get('photos') === '1';
-    const intervalParam = parseInt(p.get('interval')||'', 10);
-    const refreshParam = parseInt(p.get('refresh')||'', 10);
-
-    if (!isNaN(intervalParam) && intervalParam>0){
-      const secEl = document.getElementById('sec'); if (secEl) secEl.value = intervalParam;
-      interval = Math.max(5, Math.min(60, intervalParam)) * 1000;
-    }
-    if (!isNaN(refreshParam) && refreshParam>0){
-      const minEl = document.getElementById('min'); if (minEl) minEl.value = refreshParam;
-      const chk = document.getElementById('autoRefresh'); if (chk) chk.checked = true;
-    }
-    if (photos){
-      const c = document.getElementById('photosOnly'); if (c) c.checked = true;
-      // ensure current filter applied if data already present
-      if (typeof applyPhotoOnly === 'function') { try { applyPhotoOnly(); } catch(e){} }
-    }
-    if (start){
-      // defer to ensure DOM is ready
-      setTimeout(()=>{ const btn=document.getElementById('start'); if(btn) btn.click(); }, 50);
-    }
-  }catch(e){ /* ignore */ }
-})();
-
 </script>
 </body>
 </html>
